@@ -17,6 +17,8 @@ on:
           - paresh
           - de-vanced
           - tiktok
+          - patcheddit
+          - chiggi
   workflow_call:
     inputs:
       patch_source:

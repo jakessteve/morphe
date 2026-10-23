@@ -20,7 +20,12 @@ from src.core.network import NetworkManager, ResourceNotFoundError
 from src.scrapers.base import AppMetadata, BaseScraper, DownloadResult, ScraperError
 
 _ARCH_SUFFIX = re.compile(r"(?:-(all|arm64-v8a|armeabi-v7a|x86_64|x86))?(?:\.apk\.apkm|\.apk|\.apkm)$", re.I)
-_GH_URL = re.compile(r"github\.com/([^/]+)/([^/]+)/releases/tag/([^/]+)")
+_GH_TAG_URL = re.compile(r"github\.com/([^/]+)/([^/]+)/releases/tag/([^/]+)")
+_GH_REPO_URL = re.compile(r"github\.com/([^/]+)/([^/]+?)(?:/releases(?:/latest)?)?/?$")
+
+_REPO_PKG_MAP: dict[str, str] = {
+    "cygnusx-1-org/continuum": "org.cygnusx1.continuum",
+}
 
 
 class GitHubReleasesError(ScraperError):
@@ -32,19 +37,34 @@ class GitHubScraper(BaseScraper):
         self._assets: list[dict[str, Any]] = []
 
     def fetch_metadata(self, url: str) -> AppMetadata:
-        m = _GH_URL.search(url)
-        if not m:
-            raise GitHubReleasesError(f"Invalid GitHub release URL: {url}")
+        m_tag = _GH_TAG_URL.search(url)
+        if m_tag:
+            owner, repo, tag = m_tag.groups()
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+            try:
+                release = json.loads(self.net.get(api_url, headers=self.net.gh_headers))
+            except ResourceNotFoundError:
+                raise GitHubReleasesError(f"Release tag '{tag}' not found in '{owner}/{repo}'") from None
+        else:
+            m_repo = _GH_REPO_URL.search(url)
+            if not m_repo:
+                raise GitHubReleasesError(f"Invalid GitHub release URL: {url}")
+            owner, repo = m_repo.groups()
+            tag = None
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+            try:
+                release = json.loads(self.net.get(api_url, headers=self.net.gh_headers))
+            except ResourceNotFoundError:
+                raise GitHubReleasesError(f"Latest release not found in '{owner}/{repo}'") from None
 
-        owner, repo, tag = m.groups()
-        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-        try:
-            release = json.loads(self.net.get(api_url, headers=self.net.gh_headers))
-        except ResourceNotFoundError:
-            raise GitHubReleasesError(f"Release tag '{tag}' not found in '{owner}/{repo}'") from None
-
-        pkg_name = release.get("name") or tag
         self._assets = release.get("assets", [])
+        repo_key = f"{owner.lower()}/{repo.lower()}"
+        if repo_key in _REPO_PKG_MAP:
+            pkg_name = _REPO_PKG_MAP[repo_key]
+            tag_name = str(release.get("tag_name") or tag or "").lstrip("v")
+            return AppMetadata(pkg_name=pkg_name, versions=[tag_name] if tag_name else [])
+
+        pkg_name = release.get("name") or tag or repo
         prefix = f"{pkg_name}-"
         seen: dict[str, None] = {}
         for asset in self._assets:
@@ -53,7 +73,8 @@ class GitHubScraper(BaseScraper):
                 continue
 
             seen[_ARCH_SUFFIX.sub("", name.removeprefix(prefix))] = None
-        return AppMetadata(pkg_name=pkg_name, versions=list(seen) or [tag])
+        tag_name = str(release.get("tag_name") or tag or "").lstrip("v")
+        return AppMetadata(pkg_name=pkg_name, versions=list(seen) or ([tag_name] if tag_name else []))
 
     def download(self, url: str, version: str, dest: Path, arch: str, dpi: str, version_code: str | None = None) -> DownloadResult:
         if not self._assets:
@@ -68,7 +89,16 @@ class GitHubScraper(BaseScraper):
                 continue
 
             m = _ARCH_SUFFIX.search(name)
-            file_arch = m.group(1).lower() if m and m.group(1) else "all"
+            file_arch = m.group(1).lower() if m and m.group(1) else None
+            if not file_arch:
+                name_lower = name.lower()
+                for known_arch in ("arm64-v8a", "armeabi-v7a", "x86_64", "x86"):
+                    if known_arch in name_lower:
+                        file_arch = known_arch
+                        break
+                else:
+                    file_arch = "all"
+
             if arch in ("all", "both"):
                 if file_arch != "all":
                     continue

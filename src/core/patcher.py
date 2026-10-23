@@ -153,7 +153,20 @@ class PatcherCLI:
         for auto_p in active_auto:
             p_args.extend(("-e", auto_p))
         p_args.extend(("--striplibs", "arm64-v8a,armeabi-v7a" if arch == "all" else arch))
-        return p_args
+
+        formatted_args: list[str] = []
+        for arg in p_args:
+            if arg.startswith("-O") and "=" in arg:
+                opt, val = arg.split("=", 1)
+                if val.isdigit() and not (val.startswith(('"', "'")) and val.endswith(('"', "'"))):
+                    formatted_args.append(f'{opt}="{val}"')
+                    continue
+            formatted_args.append(arg)
+
+        if "--continue-on-error" not in formatted_args:
+            formatted_args.append("--continue-on-error")
+
+        return formatted_args
 
     def patch(self, stock_apk: Path, output_apk: Path, patch_args: list[str]) -> None:
         base_cmd = ["-jar", self.cli_jar, "patch", stock_apk, "-o", output_apk]
