@@ -213,16 +213,6 @@ changelog-keywords = ["JioHotstar"]
 [JioHotstar.patches]
 "gitlab:Paresh-Maheshwari/paresh-patches" = []
 
-[Continuum]
-enabled = true
-brand = "patcheddit"
-arch = "arm64-v8a"
-github-dlurl = "https://github.com/cygnusx-1-org/continuum"
-patcher-args = "-e 'Spoof client' -Oclient-id=0000000000000000000000"
-
-[Continuum.patches]
-"github:wchill/patcheddit" = []
-
 [Threads]
 enabled = true
 brand = "chiggi"
