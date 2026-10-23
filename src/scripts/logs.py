@@ -1,6 +1,6 @@
 # ---------------------------------------------------------
 # Copyright (C) 2026 krvstek
-# 
+#
 # DO NOT REMOVE OR ALTER THIS COPYRIGHT HEADER.
 # This file is part of uni-apks.
 # Canonical source: https://github.com/krvstek/uni-apks
@@ -11,6 +11,7 @@
 # See the AUTHORS file in the root directory for details.
 # ---------------------------------------------------------
 
+import re
 import sys
 from pathlib import Path
 
@@ -21,9 +22,12 @@ def _require_ci(script: str) -> None:
     if not IS_GITHUB:
         abort(f"'{script}' is only available in GitHub Actions")
 
+
 def _parse_log_file(log: Path, green_lines: list[str], collected: list[str]) -> str:
     microg_line = ""
-    lines = [s for ln in log.read_text(encoding="utf-8").splitlines() if (s := ln.strip())]
+    lines = [
+        s for ln in log.read_text(encoding="utf-8").splitlines() if (s := ln.strip())
+    ]
     for i, line in enumerate(lines):
         if line.startswith("- 🟢"):
             green_lines.append(f"{line}  ")
@@ -35,6 +39,24 @@ def _parse_log_file(log: Path, green_lines: list[str], collected: list[str]) -> 
             next_line = lines[i + 1] if i + 1 < len(lines) else ""
             collected.append(f"{line}  \n{next_line}  ")
     return microg_line
+
+
+def get_title(logs_dir: Path | str, default: str = "") -> str:
+    logs = sorted(Path(logs_dir).rglob("build*.md"))
+    titles: list[str] = []
+    for log in logs:
+        for line in log.read_text(encoding="utf-8").splitlines():
+            m = re.search(
+                r"-\s*🟢\s*»\s*([^(]+?)\s*\([^)]+\):\s*\[`?v?([^`\]]+)`?\]", line
+            )
+            if m:
+                app_name = m.group(1).strip()
+                version = m.group(2).strip().lstrip("v")
+                t = f"{app_name} v{version}"
+                if t not in titles:
+                    titles.append(t)
+    return ", ".join(titles) if titles else default
+
 
 def combine_logs(logs_dir: Path | str) -> None:
     logs = sorted(Path(logs_dir).rglob("build*.md"))
@@ -58,13 +80,19 @@ def combine_logs(logs_dir: Path | str) -> None:
     if unique := list(dict.fromkeys(collected)):
         print("\n\n".join(unique))
 
+
 def main() -> None:
     _require_ci("logs.py")
     match sys.argv[1:]:
+        case ["get-title", *args]:
+            logs_p = Path(args[0]) if args else Path("logs")
+            d_val = args[1] if len(args) > 1 else ""
+            print(get_title(logs_dir=logs_p, default=d_val))
         case ["combine-logs", *args]:
             combine_logs(logs_dir=Path(args[0] if args else "logs"))
         case _:
-            abort("Usage: logs.py combine-logs [dir]")
+            abort("Usage: logs.py combine-logs [dir] | get-title [dir] [default]")
+
 
 if __name__ == "__main__":
     main()

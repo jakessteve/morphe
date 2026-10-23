@@ -4,6 +4,7 @@ strict-sigcheck = false
 
 [YouTube]
 enabled = true
+brand = "youtube"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
 
@@ -12,6 +13,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
 
 [YT-Music]
 enabled = true
+brand = "yt-music"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 
@@ -58,7 +60,7 @@ patcher-args = "-e 'Custom branding name for Reddit' -OappName='Reddit Morphe'"
 
 [X-Twitter]
 enabled = true
-brand = "piko"
+brand = "x-twitter"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/x-corp/twitter"
 
@@ -67,7 +69,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/x-corp/twitter"
 
 [Instagram]
 enabled = true
-brand = "piko"
+brand = "instagram"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/instagram/instagram-instagram"
 patcher-args = "-e 'Theme' -Oamoled=true"
@@ -86,7 +88,7 @@ changelog-keywords = ["Photos"]
 
 [Messenger]
 enabled = true
-brand = "rushi"
+brand = "messenger"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/facebook-technologies-llc/messenger/"
 changelog-keywords = ["Messenger"]
@@ -196,7 +198,7 @@ changelog-keywords = ["Twitch"]
 
 [Truecaller]
 enabled = true
-brand = "paresh"
+brand = "truecaller"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/true-software-scandinavia-ab/truecaller-caller-id-block/"
 changelog-keywords = ["Truecaller"]
@@ -215,7 +217,7 @@ changelog-keywords = ["JioHotstar"]
 
 [Threads]
 enabled = true
-brand = "chiggi"
+brand = "threads"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/instagram/threads-an-instagram-app/"
 changelog-keywords = ["Threads"]
@@ -225,7 +227,7 @@ changelog-keywords = ["Threads"]
 
 [Facebook]
 enabled = true
-brand = "de-vanced"
+brand = "facebook"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/facebook-2/facebook/"
 
