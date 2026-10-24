@@ -45,10 +45,13 @@ import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
 import com.android.tools.smali.dexlib2.iface.reference.StringReference;
+import com.android.tools.smali.dexlib2.iface.reference.TypeReference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringReference;
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference;
 import com.android.tools.smali.dexlib2.rewriter.DexRewriter;
 import com.android.tools.smali.dexlib2.rewriter.MethodRewriter;
 import com.android.tools.smali.dexlib2.rewriter.Rewriter;
@@ -112,6 +115,16 @@ public class MppExtensionRewriter {
                                     int reg = ((OneRegisterInstruction) ins).getRegisterA();
                                     return new BuilderInstruction21c(Opcode.CONST_STRING, reg, new ImmutableStringReference(ksSha256B64Url));
                                 }
+                            } else if (ins.getOpcode() == Opcode.SGET_OBJECT && ref instanceof FieldReference) {
+                                FieldReference fr = (FieldReference) ref;
+                                if ("OFFICIAL_CURRENT_CERTIFICATE".equals(fr.getName())) {
+                                    int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                    return new BuilderInstruction21c(
+                                        Opcode.SGET_OBJECT,
+                                        reg,
+                                        new ImmutableFieldReference(fr.getDefiningClass(), "OFFICIAL_LEGACY_CERTIFICATE", fr.getType())
+                                    );
+                                }
                             }
                         }
                         return ins;
@@ -132,6 +145,40 @@ public class MppExtensionRewriter {
     public static void rewriteExtensionDex(File inDex, File outDex) throws Exception {
         DexFile dex = DexFileFactory.loadDexFile(inDex, Opcodes.getDefault());
         DexRewriter rewriter = new DexRewriter(new RewriterModule() {
+            @Override
+            public Rewriter<Instruction> getInstructionRewriter(Rewriters rewriters) {
+                return new Rewriter<Instruction>() {
+                    @Override
+                    public Instruction rewrite(Instruction ins) {
+                        if (ins.getOpcode() == Opcode.CONST_CLASS && ins instanceof ReferenceInstruction) {
+                            var ref = ((ReferenceInstruction) ins).getReference();
+                            if (ref instanceof TypeReference && "Landroid/content/pm/PackageManager;".equals(((TypeReference) ref).getType())) {
+                                int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                return new BuilderInstruction21c(
+                                    Opcode.CONST_CLASS,
+                                    reg,
+                                    new ImmutableTypeReference("Landroid/app/ApplicationPackageManager;")
+                                );
+                            }
+                        } else if (ins instanceof ReferenceInstruction) {
+                            var ref = ((ReferenceInstruction) ins).getReference();
+                            if (ref instanceof StringReference) {
+                                String s = ((StringReference) ref).getString();
+                                if (s.contains("AMIHlR34")) {
+                                    int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                    return new BuilderInstruction21c(
+                                        ins.getOpcode(),
+                                        reg,
+                                        new ImmutableStringReference(s.replace("AMIHlR34", "AMIH1R34"))
+                                    );
+                                }
+                            }
+                        }
+                        return ins;
+                    }
+                };
+            }
+
             @Override
             public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
                 return new Rewriter<Method>() {
@@ -264,6 +311,30 @@ public class MppExtensionRewriter {
                     Files.deleteIfExists(tempOut);
                 }
             }
+
+            Path patchClassPath = fs.getPath("app/template/patches/messenger/misc/MessengerSignaturePatchKt.class");
+            if (Files.exists(patchClassPath)) {
+                byte[] bytes = Files.readAllBytes(patchClassPath);
+                String str = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+                if (str.contains("AMIHlR34")) {
+                    byte[] replaced = str.replace("AMIHlR34", "AMIH1R34").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+                    Files.write(patchClassPath, replaced);
+                }
+            }
+
+            Path classesDexPath = fs.getPath("classes.dex");
+            if (Files.exists(classesDexPath) && Files.exists(extPath)) {
+                Path tempIn = Files.createTempFile("cdex_in", ".dex");
+                Path tempOut = Files.createTempFile("cdex_out", ".dex");
+                try {
+                    Files.copy(classesDexPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
+                    rewriteExtensionDex(tempIn.toFile(), tempOut.toFile());
+                    Files.copy(tempOut, classesDexPath, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(tempIn);
+                    Files.deleteIfExists(tempOut);
+                }
+            }
         }
     }
 }
@@ -320,7 +391,9 @@ def _ensure_helper_java() -> Path:
     if _java_helper_path is not None and _java_helper_path.is_file():
         return _java_helper_path
 
-    helper_path = Path(tempfile.gettempdir()) / "MppExtensionRewriter.java"
+    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v2"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    helper_path = cache_dir / "MppExtensionRewriter.java"
     helper_path.write_text(_REWRITER_JAVA_SOURCE.strip(), encoding="utf-8")
     _java_helper_path = helper_path
     return _java_helper_path
