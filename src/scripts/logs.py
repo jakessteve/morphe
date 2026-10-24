@@ -58,6 +58,21 @@ def get_title(logs_dir: Path | str, default: str = "") -> str:
     return ", ".join(titles) if titles else default
 
 
+def get_version(logs_dir: Path | str, default: str = "") -> str:
+    logs = sorted(Path(logs_dir).rglob("build*.md"))
+    versions: list[str] = []
+    for log in logs:
+        for line in log.read_text(encoding="utf-8").splitlines():
+            m = re.search(
+                r"-\s*🟢\s*»\s*([^(]+?)\s*\([^)]+\):\s*\[`?v?([^`\]]+)`?\]", line
+            )
+            if m:
+                version = m.group(2).strip().lstrip("v")
+                if version not in versions:
+                    versions.append(version)
+    return ", ".join(versions) if versions else default
+
+
 def combine_logs(logs_dir: Path | str) -> None:
     logs = sorted(Path(logs_dir).rglob("build*.md"))
     if not logs:
@@ -88,10 +103,14 @@ def main() -> None:
             logs_p = Path(args[0]) if args else Path("logs")
             d_val = args[1] if len(args) > 1 else ""
             print(get_title(logs_dir=logs_p, default=d_val))
+        case ["get-version", *args]:
+            logs_p = Path(args[0]) if args else Path("logs")
+            d_val = args[1] if len(args) > 1 else ""
+            print(get_version(logs_dir=logs_p, default=d_val))
         case ["combine-logs", *args]:
             combine_logs(logs_dir=Path(args[0] if args else "logs"))
         case _:
-            abort("Usage: logs.py combine-logs [dir] | get-title [dir] [default]")
+            abort("Usage: logs.py combine-logs [dir] | get-title [dir] [default] | get-version [dir] [default]")
 
 
 if __name__ == "__main__":

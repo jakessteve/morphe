@@ -53,7 +53,12 @@ def _fetch_our_releases(repo: str, net: NetworkManager) -> dict[str, str]:
         releases: list[dict[str, Any]] = json.loads(our_releases_raw)
         for rel in releases:
             tag = str(rel.get("tag_name") or "")
-            brand = tag.split("-", 1)[1] if "-" in tag else ""
+            if "-v" in tag:
+                brand = tag.split("-v", 1)[0]
+            elif "-" in tag:
+                brand = tag.split("-", 1)[1]
+            else:
+                brand = ""
             if brand and brand not in our_releases_by_brand:
                 our_releases_by_brand[brand] = str(rel.get("published_at") or "")
     except Exception as exc:

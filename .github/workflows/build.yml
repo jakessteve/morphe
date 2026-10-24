@@ -196,12 +196,24 @@ jobs:
           TAG: ${{ needs.prepare.outputs.version }}
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
-          uv run python -m src.scripts.logs combine-logs logs | sed "s/{TAG}/$TAG/g" > final.md
-          TITLE=$(uv run python -m src.scripts.logs get-title logs "$TAG")
+          APP_VER=$(uv run python -m src.scripts.logs get-version logs "")
+          TARGET_TAG="$TAG"
+          if [ -n "$APP_VER" ]; then
+            TARGET_TAG="${{ inputs.patch_source }}-v${APP_VER}"
+          fi
+          uv run python -m src.scripts.logs combine-logs logs | sed "s/{TAG}/$TARGET_TAG/g" > final.md
+          TITLE=$(uv run python -m src.scripts.logs get-title logs "$TARGET_TAG")
+          TAG_ARG=""
+          if [ "$TARGET_TAG" != "$TAG" ]; then
+            if gh release view "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" --yes || true
+            fi
+            TAG_ARG="--tag $TARGET_TAG"
+          fi
           if [ "$PRERELEASE" = "true" ]; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --title "$TITLE" --notes-file final.md
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --title "$TITLE" $TAG_ARG --notes-file final.md
           else
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --title "$TITLE" --notes-file final.md
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --title "$TITLE" $TAG_ARG --notes-file final.md
           fi
 
       - name: Send Telegram notification
