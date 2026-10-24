@@ -136,12 +136,14 @@ def _verify_sig(dl_result: DownloadResult, pkg_name: str, patcher: PatcherCLI, t
         if not patcher.check_signature(apk_path, pkg_name):
             raise SignatureError("Bundle APK signature mismatch")
 
-def _apply_patch(entry: AppEntry, arch: str, version: str, force: bool, patcher: PatcherCLI, list_patches: str, dl_result: DownloadResult) -> Path:
+def _apply_patch(entry: AppEntry, arch: str, version: str, force: bool, patcher: PatcherCLI, list_patches: str, dl_result: DownloadResult, pkg_name: str = "") -> Path:
     arch_f = arch.replace(" ", "")
     version_f = version.replace(" ", "").lstrip("v")
-    auto_patches = patcher.resolve_auto_patches(list_patches)
-    final_args = patcher.build_patch_args(patches=entry.patches, extra_args=entry.patcher_args, arch=arch, auto_patches=auto_patches, exclusive=entry.exclusive_patches, force=force)
-    base_name = f"{entry.app_name.lower().replace(" ", "-")}-{entry.brand.lower().replace(" ", "-")}"
+    auto_patches = patcher.resolve_auto_patches(list_patches, pkg_name=pkg_name)
+    final_args = patcher.build_patch_args(patches=entry.patches, extra_args=entry.patcher_args, arch=arch, auto_patches=auto_patches, exclusive=entry.exclusive_patches, force=force, pkg_name=pkg_name)
+    app_slug = entry.app_name.lower().replace(" ", "-")
+    brand_slug = entry.brand.lower().replace(" ", "-")
+    base_name = app_slug if not brand_slug or app_slug == brand_slug else f"{app_slug}-{brand_slug}"
     apk_name = f"{base_name}-v{version_f}-{arch_f}.apk"
     patched_apk = TEMP_DIR / apk_name
 
@@ -163,7 +165,7 @@ def _build_single(entry: AppEntry, arch: str, label: str, net: NetworkManager, p
         version, vcode, force = _resolve_version(entry, patcher, list_patches, pkg_name, dl_from, scrapers, arch)
         dl_result = _download_apk(entry, version, arch, pkg_name, scrapers, dl_from, failed_sources, version_code=vcode)
         _verify_sig(dl_result, pkg_name, patcher, label, entry.skip_sigcheck, strict_sigcheck)
-        apk_output = _apply_patch(entry, arch, version, force, patcher, list_patches, dl_result)
+        apk_output = _apply_patch(entry, arch, version, force, patcher, list_patches, dl_result, pkg_name=pkg_name)
         pr(f"Built {label}: '{apk_output}'")
         github_asset_name = re.sub(r"\.+", ".", re.sub(r"[^a-zA-Z0-9@+\-_.]", ".", apk_output.name))
         ver_str = f"[`{version}`](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/releases/download/{{TAG}}/{github_asset_name})" if IS_GITHUB else f"`{version}`"
