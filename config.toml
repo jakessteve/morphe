@@ -7,7 +7,6 @@ enabled = true
 brand = "youtube"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
-patcher-args = "-e 'Clone app' -OpackageName=com.google.android.youtube"
 
 [YouTube.patches]
 "github:MorpheApp/morphe-patches" = { exclude = ["Custom branding"] }
