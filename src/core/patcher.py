@@ -29,12 +29,13 @@ _SECRET_PATTERNS = re.compile(r"(keystore-password=|keystore-entry-password=)\S+
 _java_bin_cached: str | None = None
 _java_helper_path: Path | None = None
 
-_REWRITER_JAVA_SOURCE = """
+_REWRITER_JAVA_SOURCE = r"""
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.DexFile;
 import com.android.tools.smali.dexlib2.iface.Method;
@@ -46,6 +47,8 @@ import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
 import com.android.tools.smali.dexlib2.iface.reference.StringReference;
 import com.android.tools.smali.dexlib2.iface.reference.TypeReference;
+import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
+import com.android.tools.smali.dexlib2.immutable.ImmutableDexFile;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
@@ -57,15 +60,377 @@ import com.android.tools.smali.dexlib2.rewriter.MethodRewriter;
 import com.android.tools.smali.dexlib2.rewriter.Rewriter;
 import com.android.tools.smali.dexlib2.rewriter.RewriterModule;
 import com.android.tools.smali.dexlib2.rewriter.Rewriters;
+import com.android.tools.smali.smali.Smali;
+import com.android.tools.smali.smali.SmaliOptions;
 import java.io.*;
 import java.net.URI;
 import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.util.*;
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 public class MppExtensionRewriter {
+    private static final String SIGCOMP_SMALI_SOURCE =
+        ".class public Lapp/morphe/extension/facebook/SignatureCompatibility;\n" +
+        ".super Ljava/lang/Object;\n\n" +
+        ".method public static hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    .registers 8\n" +
+        "    .param p0, \"intent\"\n\n" +
+        "    if-nez p0, :cond_has_intent\n" +
+        "    return-object p0\n\n" +
+        ":cond_has_intent\n" +
+        "    invoke-virtual {p0}, Landroid/content/Intent;->getComponent()Landroid/content/ComponentName;\n" +
+        "    move-result-object v0\n" +
+        "    if-nez v0, :cond_has_comp\n" +
+        "    goto :cond_proceed\n\n" +
+        ":cond_has_comp\n" +
+        "    return-object p0\n\n" +
+        ":cond_proceed\n" +
+        "    invoke-virtual {p0}, Landroid/content/Intent;->getData()Landroid/net/Uri;\n" +
+        "    move-result-object v1\n" +
+        "    if-nez v1, :cond_has_data\n" +
+        "    return-object p0\n\n" +
+        ":cond_has_data\n" +
+        "    invoke-virtual {v1}, Landroid/net/Uri;->getScheme()Ljava/lang/String;\n" +
+        "    move-result-object v1\n" +
+        "    if-nez v1, :cond_check_scheme\n" +
+        "    return-object p0\n\n" +
+        ":cond_check_scheme\n" +
+        "    const-string v3, \"fb-messenger\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_matched\n\n" +
+        "    const-string v3, \"fb-messenger-secure\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_matched\n\n" +
+        "    const-string v3, \"fb-messenger-sametask\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_matched\n\n" +
+        "    const-string v3, \"fb-messenger-family\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_matched\n\n" +
+        "    return-object p0\n\n" +
+        ":cond_matched\n" +
+        "    invoke-virtual {p0}, Landroid/content/Intent;->getAction()Ljava/lang/String;\n" +
+        "    move-result-object v2\n\n" +
+        ":cond_check_secure\n" +
+        "    const-string v3, \"fb-messenger-secure\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-eqz v3, :cond_check_sametask\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.SecureIntentHandlerActivity\"\n" +
+        "    goto :goto_set_comp\n\n" +
+        ":cond_check_sametask\n" +
+        "    const-string v3, \"fb-messenger-sametask\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-eqz v3, :cond_check_family\n" +
+        "    const-string v3, \"com.facebook.orca.notify.SECURE_VIEW\"\n" +
+        "    invoke-virtual {v3, v2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_sametask_sec\n" +
+        "    const-string v3, \"android.intent.action.SENDTO\"\n" +
+        "    invoke-virtual {v3, v2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_sametask_sec\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.SameTaskIntentHandlerActivity\"\n" +
+        "    goto :goto_set_comp\n" +
+        ":cond_sametask_sec\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.SecureSameTaskIntentHandlerActivity\"\n" +
+        "    goto :goto_set_comp\n\n" +
+        ":cond_check_family\n" +
+        "    const-string v3, \"fb-messenger-family\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-eqz v3, :cond_check_fbmessenger\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.FamilyIntentHandlerActivity\"\n" +
+        "    goto :goto_set_comp\n\n" +
+        ":cond_check_fbmessenger\n" +
+        "    const-string v3, \"fb-messenger\"\n" +
+        "    invoke-virtual {v3, v1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-eqz v3, :cond_default_target\n" +
+        "    if-eqz v2, :cond_default_target\n" +
+        "    const-string v3, \"android.intent.action.VIEW\"\n" +
+        "    invoke-virtual {v3, v2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_default_target\n" +
+        "    const-string v3, \"android.nfc.action.NDEF_DISCOVERED\"\n" +
+        "    invoke-virtual {v3, v2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n" +
+        "    move-result v3\n" +
+        "    if-nez v3, :cond_default_target\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.SecureIntentHandlerActivity\"\n" +
+        "    goto :goto_set_comp\n\n" +
+        ":cond_default_target\n" +
+        "    const-string v1, \"com.facebook.messenger.intents.IntentHandlerActivity\"\n\n" +
+        ":goto_set_comp\n" +
+        "    const-string v2, \"com.facebook.orca\"\n" +
+        "    invoke-virtual {p0, v2}, Landroid/content/Intent;->setPackage(Ljava/lang/String;)Landroid/content/Intent;\n" +
+        "    new-instance v3, Landroid/content/ComponentName;\n" +
+        "    invoke-direct {v3, v2, v1}, Landroid/content/ComponentName;-><init>(Ljava/lang/String;Ljava/lang/String;)V\n" +
+        "    invoke-virtual {p0, v3}, Landroid/content/Intent;->setComponent(Landroid/content/ComponentName;)Landroid/content/Intent;\n" +
+        "    return-object p0\n" +
+        ".end method\n\n" +
+        ".method public static setPackage(Landroid/content/Intent;Ljava/lang/String;)Landroid/content/Intent;\n" +
+        "    .registers 2\n" +
+        "    .param p0, \"intent\"\n" +
+        "    .param p1, \"pkg\"\n\n" +
+        "    if-nez p0, :cond_null\n" +
+        "    const/4 v0, 0x0\n" +
+        "    return-object v0\n\n" +
+        ":cond_null\n" +
+        "    invoke-virtual {p0, p1}, Landroid/content/Intent;->setPackage(Ljava/lang/String;)Landroid/content/Intent;\n" +
+        "    invoke-static {p0}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    move-result-object v0\n" +
+        "    return-object v0\n" +
+        ".end method\n\n" +
+        ".method public static queryIntentActivities(Landroid/content/pm/PackageManager;Landroid/content/Intent;I)Ljava/util/List;\n" +
+        "    .registers 4\n" +
+        "    .param p0, \"pm\"\n" +
+        "    .param p1, \"intent\"\n" +
+        "    .param p2, \"flags\"\n\n" +
+        "    invoke-static {p1}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    invoke-virtual {p0, p1, p2}, Landroid/content/pm/PackageManager;->queryIntentActivities(Landroid/content/Intent;I)Ljava/util/List;\n" +
+        "    move-result-object v0\n" +
+        "    return-object v0\n" +
+        ".end method\n\n" +
+        ".method public static startActivity(Landroid/content/Context;Landroid/content/Intent;)V\n" +
+        "    .registers 2\n" +
+        "    .param p0, \"ctx\"\n" +
+        "    .param p1, \"intent\"\n\n" +
+        "    invoke-static {p1}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    invoke-virtual {p0, p1}, Landroid/content/Context;->startActivity(Landroid/content/Intent;)V\n" +
+        "    return-void\n" +
+        ".end method\n\n" +
+        ".method public static startActivity(Landroid/content/Context;Landroid/content/Intent;Landroid/os/Bundle;)V\n" +
+        "    .registers 3\n" +
+        "    .param p0, \"ctx\"\n" +
+        "    .param p1, \"intent\"\n" +
+        "    .param p2, \"options\"\n\n" +
+        "    invoke-static {p1}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    invoke-virtual {p0, p1, p2}, Landroid/content/Context;->startActivity(Landroid/content/Intent;Landroid/os/Bundle;)V\n" +
+        "    return-void\n" +
+        ".end method\n\n" +
+        ".method public static startActivityForResult(Landroid/app/Activity;Landroid/content/Intent;I)V\n" +
+        "    .registers 3\n" +
+        "    .param p0, \"act\"\n" +
+        "    .param p1, \"intent\"\n" +
+        "    .param p2, \"requestCode\"\n\n" +
+        "    invoke-static {p1}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    invoke-virtual {p0, p1, p2}, Landroid/app/Activity;->startActivityForResult(Landroid/content/Intent;I)V\n" +
+        "    return-void\n" +
+        ".end method\n\n" +
+        ".method public static startActivityForResult(Landroid/app/Activity;Landroid/content/Intent;ILandroid/os/Bundle;)V\n" +
+        "    .registers 4\n" +
+        "    .param p0, \"act\"\n" +
+        "    .param p1, \"intent\"\n" +
+        "    .param p2, \"requestCode\"\n" +
+        "    .param p3, \"options\"\n\n" +
+        "    invoke-static {p1}, Lapp/morphe/extension/facebook/SignatureCompatibility;->hookMessengerIntent(Landroid/content/Intent;)Landroid/content/Intent;\n" +
+        "    invoke-virtual {p0, p1, p2, p3}, Landroid/app/Activity;->startActivityForResult(Landroid/content/Intent;ILandroid/os/Bundle;)V\n" +
+        "    return-void\n" +
+        ".end method\n";
+
+    private static final String FB_SIG_PATCH_SOURCE =
+        "package app.morphe.patches.facebook.misc;\n\n" +
+        "import app.morphe.patcher.extensions.InstructionExtensions;\n" +
+        "import app.morphe.patcher.patch.*;\n" +
+        "import app.morphe.patches.facebook.shared.Constants;\n" +
+        "import app.morphe.patches.shared.misc.extension.ExtensionHook;\n" +
+        "import app.morphe.patches.shared.misc.extension.SharedExtensionPatchKt;\n" +
+        "import app.morphe.util.BytecodeUtilsKt;\n" +
+        "import com.android.tools.smali.dexlib2.Opcode;\n" +
+        "import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;\n" +
+        "import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;\n" +
+        "import com.android.tools.smali.dexlib2.iface.ClassDef;\n" +
+        "import com.android.tools.smali.dexlib2.iface.Method;\n" +
+        "import com.android.tools.smali.dexlib2.iface.MethodImplementation;\n" +
+        "import com.android.tools.smali.dexlib2.iface.instruction.Instruction;\n" +
+        "import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;\n" +
+        "import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;\n" +
+        "import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c;\n" +
+        "import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction3rc;\n" +
+        "import com.android.tools.smali.dexlib2.iface.reference.MethodReference;\n" +
+        "import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;\n" +
+        "import kotlin.Unit;\n" +
+        "import java.util.*;\n" +
+        "import java.util.concurrent.atomic.AtomicInteger;\n\n" +
+        "public final class SignatureCompatibilityPatchKt {\n" +
+        "    private static final BytecodePatch extensionPatch =\n" +
+        "        SharedExtensionPatchKt.sharedExtensionPatch(\"facebook\", false, new ExtensionHook[0]);\n\n" +
+        "    private static final BytecodePatch signatureCompatibilityPatch =\n" +
+        "        PatchKt.bytecodePatch(\n" +
+        "            \"Facebook signature compatibility\",\n" +
+        "            \"Keeps Facebook first-party navigation working after signing with the established De-Vanced key.\",\n" +
+        "            true,\n" +
+        "            builder -> {\n" +
+        "                builder.compatibleWith(Constants.INSTANCE.getCOMPATIBILITY());\n" +
+        "                builder.dependsOn(extensionPatch);\n" +
+        "                builder.execute(context -> {\n" +
+        "                    AtomicInteger sigHookCount = new AtomicInteger(0);\n" +
+        "                    AtomicInteger intentHookCount = new AtomicInteger(0);\n\n" +
+        "                    context.classDefForEach(classDef -> {\n" +
+        "                        String classType = classDef.getType();\n" +
+        "                        if (classType.startsWith(\"Lapp/morphe/extension/\")) {\n" +
+        "                            return Unit.INSTANCE;\n" +
+        "                        }\n\n" +
+        "                        app.morphe.patcher.util.proxy.mutableTypes.MutableClass mutableClass = null;\n\n" +
+        "                        for (Method m : classDef.getMethods()) {\n" +
+        "                            MethodImplementation mi = m.getImplementation();\n" +
+        "                            if (mi == null) continue;\n\n" +
+        "                            List<Instruction> instructions = new ArrayList<>();\n" +
+        "                            for (Instruction ins : mi.getInstructions()) {\n" +
+        "                                instructions.add(ins);\n" +
+        "                            }\n\n" +
+        "                            app.morphe.patcher.util.proxy.mutableTypes.MutableMethod mutableMethod = null;\n\n" +
+        "                            for (int idx = instructions.size() - 1; idx >= 0; idx--) {\n" +
+        "                                Instruction ins = instructions.get(idx);\n" +
+        "                                if (ins instanceof ReferenceInstruction) {\n" +
+        "                                    var ref = ((ReferenceInstruction) ins).getReference();\n" +
+        "                                    if (ref instanceof MethodReference) {\n" +
+        "                                        MethodReference mr = (MethodReference) ref;\n" +
+        "                                        if (\"Landroid/content/pm/Signature;\".equals(mr.getDefiningClass())\n" +
+        "                                            && \"toByteArray\".equals(mr.getName())\n" +
+        "                                            && \"[B\".equals(mr.getReturnType())\n" +
+        "                                            && mr.getParameterTypes().isEmpty()) {\n\n" +
+        "                                            if (idx + 1 >= instructions.size()) {\n" +
+        "                                                throw new IllegalStateException(\"Signature.toByteArray is not followed by move-result-object in \" + m);\n" +
+        "                                            }\n" +
+        "                                            Instruction nextIns = instructions.get(idx + 1);\n" +
+        "                                            if (nextIns.getOpcode() != Opcode.MOVE_RESULT_OBJECT || !(nextIns instanceof OneRegisterInstruction)) {\n" +
+        "                                                throw new IllegalStateException(\"Signature.toByteArray is not followed by move-result-object in \" + m);\n" +
+        "                                            }\n\n" +
+        "                                            int reg = ((OneRegisterInstruction) nextIns).getRegisterA();\n" +
+        "                                            if (mutableClass == null) {\n" +
+        "                                                mutableClass = context.mutableClassDefBy(classDef);\n" +
+        "                                            }\n" +
+        "                                            if (mutableMethod == null) {\n" +
+        "                                                mutableMethod = BytecodeUtilsKt.findMutableMethodOf(mutableClass, m);\n" +
+        "                                            }\n\n" +
+        "                                            String hookSmali =\n" +
+        "                                                \"invoke-static/range {v\" + reg + \" .. v\" + reg + \"}, Lapp/morphe/extension/facebook/SignatureCompatibility;->spoofSignatureBytes([B)[B\\n\" +\n" +
+        "                                                \"move-result-object v\" + reg;\n\n" +
+        "                                            InstructionExtensions.INSTANCE.addInstructions(mutableMethod, idx + 2, hookSmali);\n" +
+        "                                            sigHookCount.incrementAndGet();\n" +
+        "                                        }\n" +
+        "                                    }\n" +
+        "                                }\n" +
+        "                            }\n\n" +
+        "                            for (int idx = 0; idx < instructions.size(); idx++) {\n" +
+        "                                Instruction ins = instructions.get(idx);\n" +
+        "                                Opcode op = ins.getOpcode();\n" +
+        "                                boolean is35c = (op == Opcode.INVOKE_VIRTUAL);\n" +
+        "                                boolean is3rc = (op == Opcode.INVOKE_VIRTUAL_RANGE);\n" +
+        "                                if (!is35c && !is3rc) continue;\n\n" +
+        "                                if (!(ins instanceof ReferenceInstruction)) continue;\n" +
+        "                                var ref = ((ReferenceInstruction) ins).getReference();\n" +
+        "                                if (!(ref instanceof MethodReference)) continue;\n" +
+        "                                MethodReference mr = (MethodReference) ref;\n\n" +
+        "                                String targetName = null;\n" +
+        "                                List<String> targetParams = null;\n" +
+        "                                String targetRet = null;\n\n" +
+        "                                String defClass = mr.getDefiningClass();\n" +
+        "                                String mName = mr.getName();\n" +
+        "                                List<? extends CharSequence> pTypes = mr.getParameterTypes();\n" +
+        "                                int pCount = pTypes.size();\n\n" +
+        "                                if (\"setPackage\".equals(mName) && pCount == 1 && \"Landroid/content/Intent;\".equals(defClass)) {\n" +
+        "                                    if (\"Ljava/lang/String;\".equals(pTypes.get(0).toString())) {\n" +
+        "                                        targetName = \"setPackage\";\n" +
+        "                                        targetParams = List.of(\"Landroid/content/Intent;\", \"Ljava/lang/String;\");\n" +
+        "                                        targetRet = \"Landroid/content/Intent;\";\n" +
+        "                                    }\n" +
+        "                                } else if (\"queryIntentActivities\".equals(mName) && pCount == 2\n" +
+        "                                    && (\"Landroid/content/pm/PackageManager;\".equals(defClass) || \"Landroid/app/ApplicationPackageManager;\".equals(defClass))) {\n" +
+        "                                    if (\"Landroid/content/Intent;\".equals(pTypes.get(0).toString()) && \"I\".equals(pTypes.get(1).toString())) {\n" +
+        "                                        targetName = \"queryIntentActivities\";\n" +
+        "                                        targetParams = List.of(\"Landroid/content/pm/PackageManager;\", \"Landroid/content/Intent;\", \"I\");\n" +
+        "                                        targetRet = \"Ljava/util/List;\";\n" +
+        "                                    }\n" +
+        "                                } else if (\"startActivity\".equals(mName)\n" +
+        "                                    && (\"Landroid/content/Context;\".equals(defClass) || \"Landroid/app/Activity;\".equals(defClass) || \"Landroid/content/ContextWrapper;\".equals(defClass))) {\n" +
+        "                                    if (pCount == 1 && \"Landroid/content/Intent;\".equals(pTypes.get(0).toString())) {\n" +
+        "                                        targetName = \"startActivity\";\n" +
+        "                                        targetParams = List.of(\"Landroid/content/Context;\", \"Landroid/content/Intent;\");\n" +
+        "                                        targetRet = \"V\";\n" +
+        "                                    } else if (pCount == 2 && \"Landroid/content/Intent;\".equals(pTypes.get(0).toString()) && \"Landroid/os/Bundle;\".equals(pTypes.get(1).toString())) {\n" +
+        "                                        targetName = \"startActivity\";\n" +
+        "                                        targetParams = List.of(\"Landroid/content/Context;\", \"Landroid/content/Intent;\", \"Landroid/os/Bundle;\");\n" +
+        "                                        targetRet = \"V\";\n" +
+        "                                    }\n" +
+        "                                } else if (\"startActivityForResult\".equals(mName)\n" +
+        "                                    && (\"Landroid/app/Activity;\".equals(defClass) || \"Landroid/content/Context;\".equals(defClass))) {\n" +
+        "                                    if (pCount == 2 && \"Landroid/content/Intent;\".equals(pTypes.get(0).toString()) && \"I\".equals(pTypes.get(1).toString())) {\n" +
+        "                                        targetName = \"startActivityForResult\";\n" +
+        "                                        targetParams = List.of(\"Landroid/app/Activity;\", \"Landroid/content/Intent;\", \"I\");\n" +
+        "                                        targetRet = \"V\";\n" +
+        "                                    } else if (pCount == 3 && \"Landroid/content/Intent;\".equals(pTypes.get(0).toString()) && \"I\".equals(pTypes.get(1).toString()) && \"Landroid/os/Bundle;\".equals(pTypes.get(2).toString())) {\n" +
+        "                                        targetName = \"startActivityForResult\";\n" +
+        "                                        targetParams = List.of(\"Landroid/app/Activity;\", \"Landroid/content/Intent;\", \"I\", \"Landroid/os/Bundle;\");\n" +
+        "                                        targetRet = \"V\";\n" +
+        "                                    }\n" +
+        "                                }\n\n" +
+        "                                if (targetName != null) {\n" +
+        "                                    if (mutableClass == null) {\n" +
+        "                                        mutableClass = context.mutableClassDefBy(classDef);\n" +
+        "                                    }\n" +
+        "                                    if (mutableMethod == null) {\n" +
+        "                                        mutableMethod = BytecodeUtilsKt.findMutableMethodOf(mutableClass, m);\n" +
+        "                                    }\n\n" +
+        "                                    var methodRef = new ImmutableMethodReference(\n" +
+        "                                        \"Lapp/morphe/extension/facebook/SignatureCompatibility;\",\n" +
+        "                                        targetName,\n" +
+        "                                        targetParams,\n" +
+        "                                        targetRet\n" +
+        "                                    );\n\n" +
+        "                                    if (is35c) {\n" +
+        "                                        Instruction35c i35 = (Instruction35c) ins;\n" +
+        "                                        var newIns = new BuilderInstruction35c(\n" +
+        "                                            Opcode.INVOKE_STATIC,\n" +
+        "                                            i35.getRegisterCount(),\n" +
+        "                                            i35.getRegisterC(),\n" +
+        "                                            i35.getRegisterD(),\n" +
+        "                                            i35.getRegisterE(),\n" +
+        "                                            i35.getRegisterF(),\n" +
+        "                                            i35.getRegisterG(),\n" +
+        "                                            methodRef\n" +
+        "                                        );\n" +
+        "                                        InstructionExtensions.INSTANCE.replaceInstruction(mutableMethod, idx, newIns);\n" +
+        "                                    } else {\n" +
+        "                                        Instruction3rc i3r = (Instruction3rc) ins;\n" +
+        "                                        var newIns = new BuilderInstruction3rc(\n" +
+        "                                            Opcode.INVOKE_STATIC_RANGE,\n" +
+        "                                            i3r.getStartRegister(),\n" +
+        "                                            i3r.getRegisterCount(),\n" +
+        "                                            methodRef\n" +
+        "                                        );\n" +
+        "                                        InstructionExtensions.INSTANCE.replaceInstruction(mutableMethod, idx, newIns);\n" +
+        "                                    }\n" +
+        "                                    intentHookCount.incrementAndGet();\n" +
+        "                                }\n" +
+        "                            }\n" +
+        "                        }\n" +
+        "                        return Unit.INSTANCE;\n" +
+        "                    });\n\n" +
+        "                    if (sigHookCount.get() <= 0) {\n" +
+        "                        throw new IllegalStateException(\"No Facebook Signature.toByteArray consumers were found\");\n" +
+        "                    }\n" +
+        "                    System.out.println(\"[SignatureCompatibility] signatureByteHooks=\" + sigHookCount.get() + \", intentHooks=\" + intentHookCount.get());\n" +
+        "                    return Unit.INSTANCE;\n" +
+        "                });\n" +
+        "                return Unit.INSTANCE;\n" +
+        "            }\n" +
+        "        );\n\n" +
+        "    public static BytecodePatch getSignatureCompatibilityPatch() {\n" +
+        "        return signatureCompatibilityPatch;\n" +
+        "    }\n" +
+        "}\n";
+
     public static String getKeystoreCertHash(String ksPath, String ksPass, String ksAlias) {
         if (ksPath == null || ksPath.isEmpty() || !new File(ksPath).exists()) {
             return "5LFsJbuQHSK1EAX9_g6Bb2NmwwZlcxrCqfnsjk1OWI4";
@@ -98,6 +463,52 @@ public class MppExtensionRewriter {
             }
         }
         return "5LFsJbuQHSK1EAX9_g6Bb2NmwwZlcxrCqfnsjk1OWI4";
+    }
+
+    private static String findD8() {
+        try {
+            Process p = new ProcessBuilder("which", "d8").redirectErrorStream(true).start();
+            if (p.waitFor() == 0) {
+                String out = new String(p.getInputStream().readAllBytes()).trim();
+                if (!out.isEmpty() && new File(out).canExecute()) return out;
+            }
+        } catch (Exception ignored) {}
+
+        String androidHome = System.getenv("ANDROID_HOME");
+        if (androidHome == null || androidHome.isEmpty()) {
+            androidHome = System.getenv("ANDROID_SDK_ROOT");
+        }
+        List<File> candidates = new ArrayList<>();
+        if (androidHome != null && !androidHome.isEmpty()) {
+            File bt = new File(androidHome, "build-tools");
+            if (bt.isDirectory()) {
+                File[] subs = bt.listFiles();
+                if (subs != null) candidates.addAll(Arrays.asList(subs));
+            }
+        }
+        File defaultSdkBt = new File(System.getProperty("user.home"), "Android/Sdk/build-tools");
+        if (defaultSdkBt.isDirectory()) {
+            File[] subs = defaultSdkBt.listFiles();
+            if (subs != null) candidates.addAll(Arrays.asList(subs));
+        }
+        candidates.sort((a, b) -> b.getName().compareTo(a.getName()));
+        for (File f : candidates) {
+            File exe = new File(f, "d8");
+            if (exe.isFile() && exe.canExecute()) return exe.getAbsolutePath();
+        }
+        return null;
+    }
+
+    private static void deleteRecursively(Path p) {
+        if (Files.isDirectory(p)) {
+            try (var stream = Files.walk(p)) {
+                stream.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); } catch (Exception ignored) {}
+                });
+            } catch (Exception ignored) {}
+        } else {
+            try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+        }
     }
 
     public static void rewriteFacebookDex(File inDex, File outDex, String ksSha256B64Url) throws Exception {
@@ -133,9 +544,66 @@ public class MppExtensionRewriter {
             }
         });
         DexFile rewritten = rewriter.getDexFileRewriter().rewrite(dex);
+
+        File smaliFile = File.createTempFile("sigcomp_hooks", ".smali");
+        File helperDexFile = File.createTempFile("sigcomp_hooks", ".dex");
+        ClassDef helperClass = null;
+        try {
+            Files.writeString(smaliFile.toPath(), SIGCOMP_SMALI_SOURCE);
+            SmaliOptions opt = new SmaliOptions();
+            opt.outputDexFile = helperDexFile.getAbsolutePath();
+            opt.apiLevel = 26;
+            if (Smali.assemble(opt, List.of(smaliFile.getAbsolutePath()))) {
+                DexFile helperDex = DexFileFactory.loadDexFile(helperDexFile, Opcodes.getDefault());
+                for (ClassDef item : helperDex.getClasses()) {
+                    if ("Lapp/morphe/extension/facebook/SignatureCompatibility;".equals(item.getType())) {
+                        helperClass = item;
+                        break;
+                    }
+                }
+            }
+        } finally {
+            smaliFile.delete();
+            helperDexFile.delete();
+        }
+
+        Set<ClassDef> classes = new HashSet<>();
+        for (ClassDef item : rewritten.getClasses()) {
+            if ("Lapp/morphe/extension/facebook/SignatureCompatibility;".equals(item.getType())) {
+                List<Method> combinedMethods = new ArrayList<>();
+                Set<String> sigs = new HashSet<>();
+                if (helperClass != null) {
+                    for (Method m : helperClass.getMethods()) {
+                        if (!m.getName().equals("<init>") && !m.getName().equals("<clinit>")) {
+                            sigs.add(m.getName() + ":" + m.getParameters());
+                            combinedMethods.add(m);
+                        }
+                    }
+                }
+                for (Method m : item.getMethods()) {
+                    if (!sigs.contains(m.getName() + ":" + m.getParameters())) {
+                        combinedMethods.add(m);
+                    }
+                }
+                classes.add(new ImmutableClassDef(
+                    item.getType(),
+                    item.getAccessFlags(),
+                    item.getSuperclass(),
+                    item.getInterfaces(),
+                    item.getSourceFile(),
+                    item.getAnnotations(),
+                    item.getFields(),
+                    combinedMethods
+                ));
+            } else {
+                classes.add(item);
+            }
+        }
+
+        ImmutableDexFile finalDex = new ImmutableDexFile(Opcodes.getDefault(), classes);
         File tempOut = File.createTempFile("fb_rewrite", ".dex");
         try {
-            DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), rewritten);
+            DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), finalDex);
             Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
         } finally {
             tempOut.delete();
@@ -252,6 +720,99 @@ public class MppExtensionRewriter {
         }
     }
 
+    private static void updateFacebookPatchClass(Path targetPath, FileSystem fs, Path fbPatchClassPath) {
+        try {
+            Path tempDir = Files.createTempDirectory("fb_sig_patch");
+            try {
+                Path srcFile = tempDir.resolve("SignatureCompatibilityPatchKt.java");
+                Files.writeString(srcFile, FB_SIG_PATCH_SOURCE);
+
+                String cliJar = System.getProperty("java.class.path");
+                String cp = cliJar + File.pathSeparator + targetPath.toAbsolutePath().toString();
+
+                JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+                boolean compiled = false;
+                if (compiler != null) {
+                    int res = compiler.run(null, null, null, "-cp", cp, "-d", tempDir.toString(), srcFile.toString());
+                    compiled = (res == 0);
+                }
+                if (!compiled) {
+                    String javaBin = ProcessHandle.current().info().command().orElse("java");
+                    File javacBin = new File(new File(javaBin).getParentFile(), "javac");
+                    String javacCmd = javacBin.exists() ? javacBin.getAbsolutePath() : "javac";
+                    Process p = new ProcessBuilder(javacCmd, "-cp", cp, "-d", tempDir.toString(), srcFile.toString()).start();
+                    compiled = (p.waitFor() == 0);
+                }
+
+                if (compiled) {
+                    Path compiledClass = tempDir.resolve("app/morphe/patches/facebook/misc/SignatureCompatibilityPatchKt.class");
+                    if (Files.exists(compiledClass)) {
+                        Files.copy(compiledClass, fbPatchClassPath, StandardCopyOption.REPLACE_EXISTING);
+                    }
+
+                    Path cdexPath = fs.getPath("classes.dex");
+                    if (Files.exists(cdexPath)) {
+                        tryUpdateClassesDex(targetPath, fs, cdexPath, tempDir, compiledClass, cp);
+                    }
+                }
+            } finally {
+                deleteRecursively(tempDir);
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: failed to update Facebook patch bytecode: " + e.getMessage());
+        }
+    }
+
+    private static void tryUpdateClassesDex(Path targetPath, FileSystem fs, Path cdexPath, Path tempDir, Path compiledClass, String cp) {
+        try {
+            String d8Bin = findD8();
+            if (d8Bin == null) return;
+
+            Path dexOutDir = tempDir.resolve("d8_out");
+            Files.createDirectories(dexOutDir);
+
+            String cliJar = System.getProperty("java.class.path");
+            Process p = new ProcessBuilder(
+                d8Bin, "--min-api", "26", "--output", dexOutDir.toString(),
+                compiledClass.toString(),
+                "--classpath", cliJar,
+                "--classpath", targetPath.toAbsolutePath().toString()
+            ).start();
+
+            if (p.waitFor() == 0) {
+                Path patchDex = dexOutDir.resolve("classes.dex");
+                if (Files.exists(patchDex)) {
+                    Path tempCdexIn = Files.createTempFile("cdex_in", ".dex");
+                    Path tempCdexOut = Files.createTempFile("cdex_out", ".dex");
+                    try {
+                        Files.copy(cdexPath, tempCdexIn, StandardCopyOption.REPLACE_EXISTING);
+                        DexFile origCdex = DexFileFactory.loadDexFile(tempCdexIn.toFile(), Opcodes.getDefault());
+                        DexFile newPatchDex = DexFileFactory.loadDexFile(patchDex.toFile(), Opcodes.getDefault());
+
+                        Set<ClassDef> classes = new HashSet<>();
+                        for (ClassDef cd : origCdex.getClasses()) {
+                            if (!cd.getType().startsWith("Lapp/morphe/patches/facebook/misc/SignatureCompatibilityPatchKt")) {
+                                classes.add(cd);
+                            }
+                        }
+                        for (ClassDef cd : newPatchDex.getClasses()) {
+                            classes.add(cd);
+                        }
+
+                        ImmutableDexFile finalCdex = new ImmutableDexFile(Opcodes.getDefault(), classes);
+                        DexFileFactory.writeDexFile(tempCdexOut.toFile().getAbsolutePath(), finalCdex);
+                        Files.copy(tempCdexOut, cdexPath, StandardCopyOption.REPLACE_EXISTING);
+                    } finally {
+                        Files.deleteIfExists(tempCdexIn);
+                        Files.deleteIfExists(tempCdexOut);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: failed to update classes.dex: " + e.getMessage());
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
             System.err.println("Usage: MppExtensionRewriter <targetPath> <pkgName> [ksPath] [ksPass] [ksAlias]");
@@ -298,6 +859,11 @@ public class MppExtensionRewriter {
                 }
             }
 
+            Path fbPatchClassPath = fs.getPath("app/morphe/patches/facebook/misc/SignatureCompatibilityPatchKt.class");
+            if (Files.exists(fbPatchClassPath)) {
+                updateFacebookPatchClass(targetPath, fs, fbPatchClassPath);
+            }
+
             Path extPath = fs.getPath("extensions/extension.mpe");
             if (Files.exists(extPath) && ("com.facebook.orca".equals(pkgName) || pkgName.isEmpty())) {
                 Path tempIn = Files.createTempFile("ext_in", ".dex");
@@ -338,6 +904,7 @@ public class MppExtensionRewriter {
         }
     }
 }
+
 """
 
 
@@ -391,7 +958,7 @@ def _ensure_helper_java() -> Path:
     if _java_helper_path is not None and _java_helper_path.is_file():
         return _java_helper_path
 
-    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v2"
+    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v4"
     cache_dir.mkdir(parents=True, exist_ok=True)
     helper_path = cache_dir / "MppExtensionRewriter.java"
     helper_path.write_text(_REWRITER_JAVA_SOURCE.strip(), encoding="utf-8")

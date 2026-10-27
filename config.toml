@@ -7,25 +7,27 @@ enabled = true
 brand = "youtube"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
+patcher-args = "-e 'Clone app' -OpackageName=com.google.android.youtube"
 
 [YouTube.patches]
-"github:MorpheApp/morphe-patches" = []
+"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding"] }
 
 [YT-Music]
 enabled = true
 brand = "yt-music"
 arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
+patcher-args = "-e 'Clone app' -OpackageName=com.google.android.apps.youtube.music"
 
 [YT-Music.patches]
-"github:MorpheApp/morphe-patches" = []
+"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding"] }
 
 [Reddit]
 enabled = false
 apkmirror-dlurl = "https://www.apkmirror.com/apk/redditinc/reddit"
 
 [Reddit.patches]
-"github:MorpheApp/morphe-patches" = []
+"github:MorpheApp/morphe-patches" = { exclude = ["App icon", "Custom branding name for Reddit"] }
 
 [YouTube-Experimental]
 enabled = false
@@ -65,7 +67,7 @@ arch = "arm64-v8a"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/x-corp/twitter"
 
 [X-Twitter.patches]
-"github:crimera/piko" = ["Browse tweet object", "Dynamic color"]
+"github:crimera/piko" = { include = ["Browse tweet object", "Dynamic color"], exclude = ["Change app icon"] }
 
 [Instagram]
 enabled = true
@@ -84,7 +86,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/photos/"
 changelog-keywords = ["Photos"]
 
 [Google-Photos.patches]
-"github:rushiranpise/morphe-patches" = []
+"github:rushiranpise/morphe-patches" = { exclude = ["Change package name"] }
 
 [Messenger]
 enabled = true
