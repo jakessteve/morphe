@@ -14,7 +14,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from src.core.network import NetworkManager, ResourceNotFoundError
 from src.scrapers.base import AppMetadata, BaseScraper, DownloadResult, ScraperError
@@ -25,6 +25,14 @@ _GH_REPO_URL = re.compile(r"github\.com/([^/]+)/([^/]+?)(?:/releases(?:/latest)?
 
 _REPO_PKG_MAP: dict[str, str] = {
     "cygnusx-1-org/continuum": "org.cygnusx1.continuum",
+    "brave/brave-browser": "com.brave.browser",
+}
+
+_BRAVE_ARCH_MAP: dict[str, str] = {
+    "arm64-v8a": "BraveMonoarm64.apk",
+    "armeabi-v7a": "BraveMonoarm.apk",
+    "x86_64": "BraveMonox64.apk",
+    "x86": "BraveMonox86.apk",
 }
 
 
@@ -36,8 +44,10 @@ class GitHubScraper(BaseScraper):
         super().__init__(net)
         self._assets: list[dict[str, Any]] = []
 
+    @override
     def fetch_metadata(self, url: str) -> AppMetadata:
-        m_tag = _GH_TAG_URL.search(url)
+        clean_url = url.replace("/releases/tag/v{version}", "/releases/latest").replace("/releases/tag/{version}", "/releases/latest")
+        m_tag = _GH_TAG_URL.search(clean_url)
         if m_tag:
             owner, repo, tag = m_tag.groups()
             api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
@@ -46,7 +56,7 @@ class GitHubScraper(BaseScraper):
             except ResourceNotFoundError:
                 raise GitHubReleasesError(f"Release tag '{tag}' not found in '{owner}/{repo}'") from None
         else:
-            m_repo = _GH_REPO_URL.search(url)
+            m_repo = _GH_REPO_URL.search(clean_url)
             if not m_repo:
                 raise GitHubReleasesError(f"Invalid GitHub release URL: {url}")
             owner, repo = m_repo.groups()
@@ -76,11 +86,15 @@ class GitHubScraper(BaseScraper):
         tag_name = str(release.get("tag_name") or tag or "").lstrip("v")
         return AppMetadata(pkg_name=pkg_name, versions=list(seen) or ([tag_name] if tag_name else []))
 
-    def download(self, url: str, version: str, dest: Path, arch: str, dpi: str, version_code: str | None = None) -> DownloadResult:
-        if not self._assets:
+    @override
+    def download(self, url: str, version: str, dest: Path, arch: str, dpi: str, version_code: str | None = None, strict_arch: bool = False) -> DownloadResult:
+        version_f = version.replace(" ", "").lstrip("v")
+        if "{version}" in url:
+            url = url.replace("{version}", version_f)
+            self.fetch_metadata(url)
+        elif not self._assets:
             self.fetch_metadata(url)
 
-        version_f = version.replace(" ", "").lstrip("v")
         apk_assets = [a for a in self._assets if a["name"].endswith((".apk", ".apkm"))]
         asset = None
         for a in apk_assets:
@@ -103,11 +117,17 @@ class GitHubScraper(BaseScraper):
                 if file_arch != "all":
                     continue
             else:
-                if file_arch not in (arch, "all"):
+                allowed = (arch,) if strict_arch else (arch, "all")
+                if file_arch not in allowed:
                     continue
 
             asset = a
             break
+
+        if asset is None and "brave/brave-browser" in url.lower():
+            official_name = _BRAVE_ARCH_MAP.get(arch) or (_BRAVE_ARCH_MAP["arm64-v8a"] if arch in ("all", "both") else None)
+            if official_name:
+                asset = next((a for a in apk_assets if a["name"] == official_name), None)
 
         if asset is None:
             raise GitHubReleasesError(f"No matching variant found for arch '{arch}'")

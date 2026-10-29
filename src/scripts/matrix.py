@@ -14,6 +14,7 @@
 
 import json  # noqa: I001
 import os
+import re
 import sys
 from datetime import datetime
 from typing import Any
@@ -21,14 +22,26 @@ from typing import Any
 from src.core.config import CONFIG_PATH, AppEntry, load_toml, parse_app_entries, parse_config
 from src.core.logger import IS_GITHUB, abort, epr
 from src.core.network import NetworkManager, ResourceNotFoundError
+from src.core.prebuilts import get_highest_ver, ver_key
+
+_APK_ASSET_RE = re.compile(r"^([a-z0-9\-]+)-v(.+?)(?:-(?:all|arm64-v8a|armeabi-v7a|x86_64|x86))?\.apk$", re.IGNORECASE)
 
 
 def _require_ci(script: str) -> None:
     if not IS_GITHUB:
         abort(f"'{script}' is only available in GitHub Actions")
 
+def _entry_base_name(entry: AppEntry) -> str:
+    app_slug = entry.app_name.lower().replace(" ", "-")
+    brand_slug = entry.brand.lower().replace(" ", "-")
+    return app_slug if not brand_slug or app_slug == brand_slug else f"{app_slug}-{brand_slug}"
+
+def _lookup_built_ver(entry: AppEntry, brand: str, brand_built: dict[str, str]) -> str | None:
+    app_slug = entry.app_name.lower().replace(" ", "-")
+    return brand_built.get(_entry_base_name(entry)) or brand_built.get(f"{app_slug}-{brand}") or brand_built.get(brand)
+
 def _fetch_latest_release(source: str, net: NetworkManager, version: str = "latest") -> tuple[str, str]:
-    scheme, clean_src = source.split(":", 1)
+    scheme, _, clean_src = source.partition(":")
     upstream_rel: dict[str, Any]
     if scheme == "gitlab":
         project = clean_src.replace("/", "%2F")
@@ -46,25 +59,73 @@ def _fetch_latest_release(source: str, net: NetworkManager, version: str = "late
         upstream_date = str(upstream_rel.get("published_at") or "")
     return changelog_text, upstream_date
 
-def _fetch_our_releases(repo: str, net: NetworkManager) -> dict[str, str]:
+def _fetch_our_releases(repo: str, net: NetworkManager) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
     our_releases_by_brand: dict[str, str] = {}
+    built_versions_by_brand: dict[str, dict[str, str]] = {}
     try:
         our_releases_raw = net.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", headers=net.gh_headers)
         releases: list[dict[str, Any]] = json.loads(our_releases_raw)
         for rel in releases:
             tag = str(rel.get("tag_name") or "")
             if "-v" in tag:
-                brand = tag.split("-v", 1)[0]
+                brand = tag.split("-v", 1)[0].lower()
             elif "-" in tag:
-                brand = tag.split("-", 1)[1]
+                brand = tag.partition("-")[2].lower()
             else:
                 brand = ""
-            if brand and brand not in our_releases_by_brand:
+            if not brand:
+                continue
+            if brand not in our_releases_by_brand:
                 our_releases_by_brand[brand] = str(rel.get("published_at") or "")
+            brand_built = built_versions_by_brand.setdefault(brand, {})
+            for asset in rel.get("assets", []):
+                name = str(asset.get("name") or "")
+                if m := _APK_ASSET_RE.match(name):
+                    base_name, ver = m.group(1).lower(), m.group(2)
+                    if base_name not in brand_built:
+                        brand_built[base_name] = ver
     except Exception as exc:
         epr(f"Failed to fetch our releases: {exc}")
-        our_releases_by_brand = {}
-    return our_releases_by_brand
+    return our_releases_by_brand, built_versions_by_brand
+
+def is_newer_version(new_ver: str, old_ver: str | None) -> bool:
+    if not old_ver:
+        return True
+    if new_ver == old_ver:
+        return False
+    k_new = ver_key(new_ver)
+    k_old = ver_key(old_ver)
+    if k_new != k_old:
+        return k_new > k_old
+    full_new = tuple(int(x) for x in re.findall(r"\d+", new_ver))
+    full_old = tuple(int(x) for x in re.findall(r"\d+", old_ver))
+    return full_new > full_old
+
+def _fetch_latest_source_version(entry: AppEntry, net: NetworkManager, scrapers: dict[str, Any]) -> str | None:
+    from src.scrapers.apkmirror import APKMirrorScraper
+    from src.scrapers.aptoide import AptoideScraper
+    from src.scrapers.github import GitHubScraper
+    from src.scrapers.uptodown import UptodownScraper
+
+    for src, url in entry.dl_urls.items():
+        if src not in scrapers:
+            if src == "apkmirror":
+                scrapers[src] = APKMirrorScraper(net)
+            elif src == "uptodown":
+                scrapers[src] = UptodownScraper(net)
+            elif src == "aptoide":
+                scrapers[src] = AptoideScraper(net)
+            elif src == "github":
+                scrapers[src] = GitHubScraper(net)
+            else:
+                continue
+        try:
+            metadata = scrapers[src].cached_metadata(url)
+            if metadata.versions:
+                return get_highest_ver(metadata.versions)
+        except Exception as exc:
+            epr(f"Failed to fetch source version for '{entry.table}' from '{src}': {exc}")
+    return None
 
 def _load_entries() -> list[AppEntry]:
     data = load_toml(CONFIG_PATH)
@@ -74,7 +135,6 @@ def get_matrix(source: str) -> None:
     source_lower = source.lower()
     filter_changelog = os.getenv("FILTER_CHANGELOG", "false").lower() == "true"
     patches_source = ""
-    has_changelog_keywords = False
     is_prerelease = False
     staged: list[AppEntry] = []
     for entry in _load_entries():
@@ -84,31 +144,57 @@ def get_matrix(source: str) -> None:
             patches_source = next(iter(entry.patches), "")
         if any(spec["version"] == "dev" for spec in entry.patches.values()):
             is_prerelease = True
-        if entry.changelog_keywords:
-            has_changelog_keywords = True
         staged.append(entry)
 
     changelog_text = ""
-    if filter_changelog and has_changelog_keywords and patches_source:
+    patches_updated = True
+    built_versions_by_brand: dict[str, dict[str, str]] = {}
+    scrapers: dict[str, Any] = {}
+
+    if filter_changelog:
         with NetworkManager() as net:
             repo = os.getenv("GITHUB_REPOSITORY")
-            if repo:
-                our_releases_by_brand = _fetch_our_releases(repo, net)
-                if our_releases_by_brand.get(source_lower, ""):
-                    try:
-                        changelog_text, _ = _fetch_latest_release(patches_source, net)
-                    except Exception as exc:
-                        epr(f"Failed to fetch changelog for '{patches_source}': {exc}")
+            if repo and patches_source:
+                our_releases_by_brand, built_versions_by_brand = _fetch_our_releases(repo, net)
+                our_date = our_releases_by_brand.get(source_lower, "")
+                version = "dev" if is_prerelease else "latest"
+                try:
+                    changelog_text, upstream_date = _fetch_latest_release(patches_source, net, version=version)
+                    if our_date and upstream_date:
+                        patches_updated = datetime.fromisoformat(upstream_date) > datetime.fromisoformat(our_date)
+                except Exception as exc:
+                    epr(f"Failed to fetch changelog for '{patches_source}': {exc}")
 
-    changelog_lower = changelog_text.lower()
-    include: list[dict[str, str]] = []
-    for entry in staged:
-        if filter_changelog and entry.changelog_keywords and changelog_text and not any(kw in changelog_lower for kw in entry.changelog_keywords):
-            continue
-        if entry.arch == "both":
-            include.extend([{"id": entry.table, "arch": "arm64-v8a"}, {"id": entry.table, "arch": "armeabi-v7a"}])
-        else:
-            include.append({"id": entry.table})
+            changelog_lower = changelog_text.lower()
+            brand_built = built_versions_by_brand.get(source_lower, {})
+            include: list[dict[str, str]] = []
+
+            for entry in staged:
+                built_ver = _lookup_built_ver(entry, source_lower, brand_built)
+                has_new_apk = False
+                if entry.track_apk and entry.dl_urls:
+                    source_ver = _fetch_latest_source_version(entry, net, scrapers)
+                    if source_ver and is_newer_version(source_ver, built_ver):
+                        has_new_apk = True
+
+                if patches_updated:
+                    if entry.changelog_keywords and changelog_text and not any(kw in changelog_lower for kw in entry.changelog_keywords) and not has_new_apk:
+                        continue
+                else:
+                    if not entry.track_apk or not has_new_apk:
+                        continue
+
+                if entry.arch == "both":
+                    include.extend([{"id": entry.table, "arch": "arm64-v8a"}, {"id": entry.table, "arch": "armeabi-v7a"}])
+                else:
+                    include.append({"id": entry.table})
+    else:
+        include = []
+        for entry in staged:
+            if entry.arch == "both":
+                include.extend([{"id": entry.table, "arch": "arm64-v8a"}, {"id": entry.table, "arch": "armeabi-v7a"}])
+            else:
+                include.append({"id": entry.table})
 
     if not include:
         abort(f"No apps found for patch source '{source}'")
@@ -145,9 +231,10 @@ def check_builds_needed(force_all: bool = False) -> None:
             entries_by_brand.setdefault(entry.brand.lower(), []).append(entry)
 
     with NetworkManager() as net:
-        our_releases_by_brand = _fetch_our_releases(repo, net)
-
+        our_releases_by_brand, built_versions_by_brand = _fetch_our_releases(repo, net)
+        scrapers: dict[str, Any] = {}
         brands_to_build: list[str] = []
+
         for brand, patches_source in seen.items():
             our_date = our_releases_by_brand.get(brand, "")
             try:
@@ -160,9 +247,8 @@ def check_builds_needed(force_all: bool = False) -> None:
                 brands_to_build.append(brand)
                 continue
 
-            if not our_date:
-                brands_to_build.append(brand)
-            elif upstream_date and datetime.fromisoformat(upstream_date) > datetime.fromisoformat(our_date):
+            patches_updated = (not our_date) or (bool(upstream_date) and datetime.fromisoformat(upstream_date) > datetime.fromisoformat(our_date))
+            if patches_updated:
                 changelog_lower = changelog_text.lower()
                 has_apps = False
                 for app in entries_by_brand.get(brand, []):
@@ -171,6 +257,22 @@ def check_builds_needed(force_all: bool = False) -> None:
                         break
                 if has_apps:
                     brands_to_build.append(brand)
+                    continue
+
+            brand_built = built_versions_by_brand.get(brand, {})
+            apk_update_found = False
+            for app in entries_by_brand.get(brand, []):
+                if not app.track_apk or not app.dl_urls:
+                    continue
+                built_ver = _lookup_built_ver(app, brand, brand_built)
+                source_ver = _fetch_latest_source_version(app, net, scrapers)
+                if source_ver and is_newer_version(source_ver, built_ver):
+                    apk_update_found = True
+                    break
+
+            if apk_update_found:
+                brands_to_build.append(brand)
+
     print(json.dumps(brands_to_build))
 
 def main() -> None:

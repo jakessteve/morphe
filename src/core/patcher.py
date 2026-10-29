@@ -1188,8 +1188,14 @@ class PatcherCLI:
     def patch(self, stock_apk: Path, output_apk: Path, patch_args: list[str]) -> None:
         base_cmd = ["-jar", self.cli_jar, "patch", stock_apk, "-o", output_apk]
         ks_args: list[str] = []
-        if self.ks_path and (ks_pass := os.getenv("KEYSTORE_PASS")) and (ks_alias := os.getenv("KEYSTORE_ALIAS")):
-            ks_args = [f"--keystore={self.ks_path}", f"--keystore-entry-password={ks_pass}", f"--keystore-password={ks_pass}", f"--signer={ks_alias}", f"--keystore-entry-alias={ks_alias}"]
+        if self.ks_path and (ks_alias := os.getenv("KEYSTORE_ALIAS")):
+            ks_args = [f"--keystore={self.ks_path}", f"--signer={ks_alias}", f"--keystore-entry-alias={ks_alias}"]
+            entry_pass = os.getenv("KEYSTORE_ENTRY_PASS") or os.getenv("KEYSTORE_PASS") or ""
+            store_pass = os.getenv("KEYSTORE_PASSWORD") or os.getenv("KEYSTORE_PASS") or ""
+            if entry_pass:
+                ks_args.append(f"--keystore-entry-password={entry_pass}")
+            if store_pass:
+                ks_args.append(f"--keystore-password={store_pass}")
         elif Path("morphe.keystore").exists():
             ks_args = ["--keystore=morphe.keystore"]
 

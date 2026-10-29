@@ -27,6 +27,7 @@ from src.core.prebuilts import APKSIGNER, fetch_cli, fetch_mpp, get_highest_ver
 from src.scrapers.base import BaseScraper, DownloadResult, ScraperError
 
 _failed_signatures: set[str] = set()
+_BLOCK_RE: re.Pattern[str] = re.compile(r"^> ⚙️ » (CLI|Patches):.*?(?=^> ⚙️ »|\Z)", re.MULTILINE | re.DOTALL)
 
 
 class BuilderError(Exception):
@@ -34,10 +35,16 @@ class BuilderError(Exception):
 
 def _make_scraper(source: str, net: NetworkManager) -> BaseScraper:
     from src.scrapers.apkmirror import APKMirrorScraper
+    from src.scrapers.aptoide import AptoideScraper
     from src.scrapers.github import GitHubScraper
+    from src.scrapers.uptodown import UptodownScraper
     match source:
         case "apkmirror":
             return APKMirrorScraper(net)
+        case "uptodown":
+            return UptodownScraper(net)
+        case "aptoide":
+            return AptoideScraper(net)
         case "github":
             return GitHubScraper(net)
         case _:
@@ -65,7 +72,7 @@ def _resolve_version(entry: AppEntry, patcher: PatcherCLI, list_patches: str, pk
         if not version:
             raise BuilderError("Could not determine version")
         is_custom = True
-    elif (v := patcher.get_last_supported_version(list_patches, pkg_name, entry.patches, arch=arch, experimental=entry.version == "exp")):
+    elif v := patcher.get_last_supported_version(list_patches, pkg_name, entry.patches, arch=arch, experimental=entry.version == "exp"):
         version, vcode = v
         is_custom = False
     else:
@@ -82,7 +89,8 @@ def _resolve_version(entry: AppEntry, patcher: PatcherCLI, list_patches: str, pk
 def _download_apk(entry: AppEntry, version: str, arch: str, pkg_name: str, scrapers: dict[str, BaseScraper], dl_from: str, failed_sources: set[str], version_code: str | None = None) -> DownloadResult:
     arch_f = arch.replace(" ", "")
     version_f = version.replace(" ", "").lstrip("v")
-    base_name = f"{pkg_name}-v{version_f}-{arch_f}.apk"
+    dpi_suffix = f"_{entry.dpi.replace(' ', '')}" if entry.dpi else ""
+    base_name = f"{pkg_name}-v{version_f}-{arch_f}{dpi_suffix}.apk"
     stock_apk = TEMP_DIR / base_name
     if stock_apk.exists():
         return DownloadResult(path=stock_apk, is_bundle=False)
@@ -99,9 +107,10 @@ def _download_apk(entry: AppEntry, version: str, arch: str, pkg_name: str, scrap
         url = entry.dl_urls[src]
         pr(f"Downloading '{entry.table}' from '{src}'")
         try:
-            return scrapers[src].download(url, version, stock_apk, arch, entry.dpi, version_code=version_code)
+            return scrapers[src].download(url, version, stock_apk, arch, entry.dpi, version_code=version_code, strict_arch=entry.strict_arch)
         except (NetworkError, ScraperError) as exc:
-            epr(f"Failed to fetch '{entry.table}' from '{src}' (version='{version}', arch='{arch}'): {exc}")
+            dpi_str = f", dpi='{entry.dpi}'" if entry.dpi else ""
+            epr(f"Failed to fetch '{entry.table}' from '{src}' (version='{version}', arch='{arch}'{dpi_str}): {exc}")
     raise BuilderError("Stock APK not found")
 
 def _extract_base_apk(apkm: Path, pkg_name: str, dest_dir: Path) -> Path:
@@ -164,6 +173,12 @@ def _build_single(entry: AppEntry, arch: str, label: str, net: NetworkManager, p
         list_patches = patcher.list_patches(pkg_name, experimental=entry.version == "exp")
         version, vcode, force = _resolve_version(entry, patcher, list_patches, pkg_name, dl_from, scrapers, arch)
         dl_result = _download_apk(entry, version, arch, pkg_name, scrapers, dl_from, failed_sources, version_code=vcode)
+        size_mb = dl_result.path.stat().st_size / (1024 * 1024)
+        if entry.min_size_mb is not None and size_mb < entry.min_size_mb:
+            raise BuilderError(f"Source APK is too small: {size_mb:.2f} MiB; minimum is {entry.min_size_mb:.2f} MiB")
+        if entry.max_size_mb is not None and size_mb > entry.max_size_mb:
+            raise BuilderError(f"Source APK is too large: {size_mb:.2f} MiB; maximum is {entry.max_size_mb:.2f} MiB")
+        pr(f"Source APK size: {size_mb:.2f} MiB")
         _verify_sig(dl_result, pkg_name, patcher, label, entry.skip_sigcheck, strict_sigcheck)
         apk_output = _apply_patch(entry, arch, version, force, patcher, list_patches, dl_result, pkg_name=pkg_name)
         pr(f"Built {label}: '{apk_output}'")
@@ -220,7 +235,10 @@ def _submit_entries(entries: list[AppEntry], pool: ThreadPoolExecutor, net: Netw
         patcher = PatcherCLI(cli_cache[cli_key], app_mpp_map, APKSIGNER, ks_path=ks_path)
         arches = ("arm64-v8a", "armeabi-v7a") if entry.arch == "both" else (entry.arch,)
         for arch in arches:
-            label = entry.app_name if entry.arch == "all" else f"{entry.app_name} ({arch})"
+            details = [arch] if arch != "all" else []
+            if entry.dpi:
+                details.append(entry.dpi)
+            label = f"{entry.app_name} ({', '.join(details)})" if details else entry.app_name
             futures.append(pool.submit(_build_single, entry, arch, label, net, patcher, strict_sigcheck))
     return futures
 
@@ -245,20 +263,15 @@ def run_build(entries: list[AppEntry], config: Config, net: NetworkManager) -> b
     for tmp in TEMP_DIR.rglob("tmp*"):
         shutil.rmtree(tmp, ignore_errors=True)
 
-    log_lines: list[str] = []
-    for fut in as_completed(futures):
-        if r := fut.result():
-            log_lines.append(r)
-
+    log_lines = [r for fut in as_completed(futures) if (r := fut.result())]
     if not log_lines:
         epr("All builds failed")
         return False
 
     raw = "".join(cl.read_text(encoding="utf-8") for cl in sorted(TEMP_DIR.glob("*/changelog.md")))
-    block_re = re.compile(r"^> ⚙️ » (CLI|Patches):.*?(?=^> ⚙️ »|\Z)", re.MULTILINE | re.DOTALL)
     cli_blocks: list[str] = []
     patch_blocks: list[str] = []
-    for m in block_re.finditer(raw):
+    for m in _BLOCK_RE.finditer(raw):
         (cli_blocks if m.group(1) == "CLI" else patch_blocks).append(m.group())
     changelogs = "".join(cli_blocks) + "".join(patch_blocks)
     microg_line = "▶️ » Install [MicroG-RE](https://github.com/MorpheApp/MicroG-RE/releases) to enable Google account sign-in for supported apps\n"

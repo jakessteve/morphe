@@ -55,6 +55,8 @@ No further setup needed, as `uv` handles the Python environment and dependencies
 uv run main.py # build all apps
 uv run main.py SomeApp # build a specific app
 uv run main.py SomeApp arm64-v8a # build with arch override
+uv run main.py SomeApp nodpi # build with DPI override
+uv run main.py SomeApp arm64-v8a nodpi # build with arch and DPI override
 uv run main.py clear # remove build/, temp/ and build.md
 ```
 
@@ -97,11 +99,18 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/inc/app"
 | `cli-version` | CLI version to fetch (`latest`, `dev`, or a specific version string) | `latest` | Global / Per-app |
 | `cli-source` | GitHub or GitLab repo for CLI (`github:owner/repo` or `gitlab:owner/repo`) | `github:MorpheApp/morphe-desktop` | Global / Per-app |
 | `strict-sigcheck` | Fail the build if an app is missing from `sig.txt` (see note below) | `true` | **Global only** |
+| `track-apk` | Trigger builds in CI when a newer APK version is released on the download source, even if patches haven't updated | `false` | Global / Per-app |
+| `dpi` | Preferred APKMirror DPI variant (e.g. `nodpi`, `480dpi`, or comma-separated fallback list) | `""` (`nodpi,-480dpi,-640dpi`) | Global / Per-app |
+| `strict-arch` | Reject universal APK fallbacks when building a specific architecture (`arm64-v8a`, `armeabi-v7a`, etc.) | `false` | Global / Per-app |
+| `min-size-mb` | Minimum expected output APK size in MB (fails build if smaller) | `-` | Global / Per-app |
+| `max-size-mb` | Maximum expected output APK size in MB (fails build if larger) | `-` | Global / Per-app |
 | `app-name` | Display name used in output filename and build label | `table name (hyphens replaced by spaces)` | Per-app |
 | `arch` | Target architecture (`all`, `both`, `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`) | `all` | Per-app |
 | `version` | Target version (`auto`, `latest`, `exp`, or a specific version string) - `latest` fetches the newest APK available in the download source, `exp` also considers experimental patch versions, `auto` only stable ones | `auto` | Per-app |
 | `changelog-keywords` | List of keywords used to detect if this app was updated in the release notes | `[]` | Per-app |
 | `apkmirror-dlurl` | APKMirror page URL | `-` | Per-app |
+| `uptodown-dlurl` | Uptodown app page URL (`https://<slug>.en.uptodown.com/android`) | `-` | Per-app |
+| `aptoide-dlurl` | Aptoide package name (e.g. `com.google.android.youtube`) or app page URL | `-` | Per-app |
 | `github-dlurl` | GitHub Releases page URL | `-` | Per-app |
 | `exclusive-patches` | Only apply patches listed in `[AppName.patches]`, exclude everything else | `false` | Per-app |
 | `patcher-args` | Extra arguments passed directly to Morphe CLI | `-` | Per-app |

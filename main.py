@@ -18,7 +18,7 @@ import shutil
 import signal
 import subprocess
 import sys
-from copy import replace
+from dataclasses import replace
 from pathlib import Path
 
 from src.core.builder import run_build
@@ -51,13 +51,12 @@ def _require_java(min_version: int = 21) -> None:
     match = re.search(r'version "(\d+)', result.stderr)
     if not match:
         abort("Could not determine Java version")
-    assert match
 
     version = int(match.group(1))
     if version < min_version:
         abort(f"Java {version} found, but Java {min_version}+ is required")
 
-def _build(target_app: str | None = None, arch_override: str | None = None) -> int:
+def _build(target_app: str | None = None, arch_override: str | None = None, dpi_override: str | None = None) -> int:
     _require_java()
     data = load_toml(CONFIG_PATH)
     main_cfg = parse_config(data)
@@ -68,6 +67,9 @@ def _build(target_app: str | None = None, arch_override: str | None = None) -> i
 
     if arch_override:
         entries = [replace(e, arch=arch_override) for e in entries]
+
+    if dpi_override:
+        entries = [replace(e, dpi=dpi_override) for e in entries]
 
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,7 +95,7 @@ def _clear() -> int:
     pr("Cleaned successfully" if cleaned else "Already clean")
     return 0
 
-def _sigint_handler(sig: int, frame: object) -> None:
+def _sigint_handler(_sig: int, _frame: object) -> None:
     global _shutting_down
     if _shutting_down:
         return
@@ -115,13 +117,21 @@ def main() -> None:
             sys.exit(_build())
         case ["clear"]:
             sys.exit(_clear())
-        case [target, *rest] if not rest or rest[0] in VALID_ARCHES:
-            sys.exit(_build(target_app=target, arch_override=rest[0] if rest else None))
+        case [target]:
+            sys.exit(_build(target_app=target))
+        case [target, arch, dpi] if arch in VALID_ARCHES:
+            sys.exit(_build(target_app=target, arch_override=arch, dpi_override=dpi))
+        case [_, arch, _]:
+            abort(f"Unknown arch '{arch}'. Valid: {', '.join(sorted(VALID_ARCHES))}")
+        case [target, arch] if arch in VALID_ARCHES:
+            sys.exit(_build(target_app=target, arch_override=arch))
+        case [target, arg2] if arg2.endswith("dpi") or arg2 in ("nodpi", "anydpi") or arg2.isdigit():
+            sys.exit(_build(target_app=target, dpi_override=arg2))
         case [_, arch]:
             abort(f"Unknown arch '{arch}'. Valid: {', '.join(sorted(VALID_ARCHES))}")
         case _:
             epr(f"Unknown command: {' '.join(sys.argv[1:])}")
-            abort("Usage: main.py [target] [arch] | clear")
+            abort("Usage: main.py [target] [arch] [dpi] | clear")
 
 if __name__ == "__main__":
     main()

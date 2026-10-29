@@ -85,7 +85,7 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -118,8 +118,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_ENTRY_PASS: ${{ secrets.KEYSTORE_ENTRY_PASS }}
           KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
-        run: uv run main.py ${{ matrix.id }} ${{ matrix.arch }}
+        run: uv run main.py ${{ matrix.id }} ${{ matrix.arch }} ${{ matrix.dpi }}
 
       - name: Upload APKs to draft release
         if: always()
