@@ -7,7 +7,7 @@
     "additionalSettings": "{\"fallbackToOlderReleases\": true, \"apkFilterRegEx\": \"^youtube-.*\\\\.apk$\", \"filterReleaseTitlesByRegEx\": \"\", \"autoApkFilterByArch\": true, \"invertAPKFilter\": false, \"versionStringSource\": \"releaseTitle\", \"releaseTitleAsVersion\": true, \"versionExtractionRegEx\": \"(?:v|^)([0-9]+(?:\\\\.[0-9]+)*(?:-release\\\\.[0-9]+)?)\", \"matchGroupToUse\": \"1\"}"
   },
   {
-    "id": "com.google.android.apps.youtube.music",
+    "id": "app.morphe.android.apps.youtube.music",
     "url": "https://github.com/jakessteve/morphe",
     "author": "jakessteve",
     "name": "YT Music",
