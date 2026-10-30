@@ -259,7 +259,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/tiktok-pte-ltd/tik-tok-includin
 aptoide-dlurl = "com.zhiliaoapp.musically"
 
 [TikTok.patches]
-"github:icysymmetra/tiktok-patches-for-morphe" = []
+"github:SysAdminDoc/HushFeed" = []
 
 [Google-Photos-Pixel]
 enabled = false
