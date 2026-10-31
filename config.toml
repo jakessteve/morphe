@@ -11,7 +11,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
 aptoide-dlurl = "com.google.android.youtube"
 
 [YouTube.patches]
-"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding"] }
+"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding", "PoToken provider"] }
 
 [YT-Music]
 enabled = true
@@ -21,7 +21,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 aptoide-dlurl = "com.google.android.apps.youtube.music"
 
 [YT-Music.patches]
-"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding"] }
+"github:MorpheApp/morphe-patches" = { exclude = ["Custom branding", "PoToken provider"] }
 
 [Reddit]
 enabled = false

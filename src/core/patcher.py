@@ -720,6 +720,205 @@ public class MppExtensionRewriter {
         }
     }
 
+    public static void rewriteMusicDex(File inDex, File outDex) throws Exception {
+        DexFile dex = DexFileFactory.loadDexFile(inDex, Opcodes.getDefault());
+        DexRewriter rewriter = new DexRewriter(new RewriterModule() {
+            @Override
+            public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
+                return new Rewriter<Method>() {
+                    @Override
+                    public Method rewrite(Method m) {
+                        if ("Lapp/morphe/extension/music/settings/Settings;".equals(m.getDefiningClass())
+                            && "<clinit>".equals(m.getName())) {
+                            MethodImplementation mi = m.getImplementation();
+                            if (mi != null) {
+                                List<Instruction> newIns = new ArrayList<>();
+                                for (Instruction ins : mi.getInstructions()) {
+                                    if (ins.getOpcode() == Opcode.SGET_OBJECT && ins instanceof ReferenceInstruction) {
+                                        var ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) ref;
+                                            if ("Lapp/morphe/extension/shared/spoof/ClientType;".equals(fr.getDefiningClass())
+                                                && "TV_SIMPLY".equals(fr.getName())) {
+                                                int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                                newIns.add(new BuilderInstruction21c(
+                                                    Opcode.SGET_OBJECT,
+                                                    reg,
+                                                    new ImmutableFieldReference(
+                                                        "Lapp/morphe/extension/shared/spoof/ClientType;",
+                                                        "ANDROID_MUSIC_NO_SDK",
+                                                        "Lapp/morphe/extension/shared/spoof/ClientType;"
+                                                    )
+                                                ));
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    newIns.add(ins);
+                                }
+                                MethodImplementation newMi = new ImmutableMethodImplementation(
+                                    mi.getRegisterCount(),
+                                    newIns,
+                                    mi.getTryBlocks(),
+                                    mi.getDebugItems()
+                                );
+                                return new ImmutableMethod(
+                                    m.getDefiningClass(),
+                                    m.getName(),
+                                    m.getParameters(),
+                                    m.getReturnType(),
+                                    m.getAccessFlags(),
+                                    m.getAnnotations(),
+                                    m.getHiddenApiRestrictions(),
+                                    newMi
+                                );
+                            }
+                        } else if ("Lapp/morphe/extension/music/patches/spoof/SpoofVideoStreamsPatch;".equals(m.getDefiningClass())
+                            && "<clinit>".equals(m.getName())) {
+                            MethodImplementation mi = m.getImplementation();
+                            if (mi != null) {
+                                List<Instruction> newIns = new ArrayList<>();
+                                for (Instruction ins : mi.getInstructions()) {
+                                    if (ins.getOpcode() == Opcode.SGET_OBJECT && ins instanceof ReferenceInstruction) {
+                                        var ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) ref;
+                                            if ("Lapp/morphe/extension/shared/spoof/ClientType;".equals(fr.getDefiningClass())) {
+                                                String mapped = null;
+                                                switch (fr.getName()) {
+                                                    case "TV_SIMPLY":
+                                                        mapped = "ANDROID_MUSIC_NO_SDK";
+                                                        break;
+                                                    case "VISIONOS_1_02":
+                                                        mapped = "ANDROID_MUSIC_REEL";
+                                                        break;
+                                                    case "ANDROID_MUSIC_NO_SDK":
+                                                        mapped = "VISIONOS_1_02";
+                                                        break;
+                                                    case "ANDROID_MUSIC_REEL":
+                                                        mapped = "TV_SIMPLY";
+                                                        break;
+                                                }
+                                                if (mapped != null) {
+                                                    int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                                    newIns.add(new BuilderInstruction21c(
+                                                        Opcode.SGET_OBJECT,
+                                                        reg,
+                                                        new ImmutableFieldReference(
+                                                            "Lapp/morphe/extension/shared/spoof/ClientType;",
+                                                            mapped,
+                                                            "Lapp/morphe/extension/shared/spoof/ClientType;"
+                                                        )
+                                                    ));
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    newIns.add(ins);
+                                }
+                                MethodImplementation newMi = new ImmutableMethodImplementation(
+                                    mi.getRegisterCount(),
+                                    newIns,
+                                    mi.getTryBlocks(),
+                                    mi.getDebugItems()
+                                );
+                                return new ImmutableMethod(
+                                    m.getDefiningClass(),
+                                    m.getName(),
+                                    m.getParameters(),
+                                    m.getReturnType(),
+                                    m.getAccessFlags(),
+                                    m.getAnnotations(),
+                                    m.getHiddenApiRestrictions(),
+                                    newMi
+                                );
+                            }
+                        }
+                        return new MethodRewriter(rewriters).rewrite(m);
+                    }
+                };
+            }
+        });
+        DexFile rewritten = rewriter.getDexFileRewriter().rewrite(dex);
+        File tempOut = File.createTempFile("music_rewrite", ".dex");
+        try {
+            DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), rewritten);
+            Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            tempOut.delete();
+        }
+    }
+
+    public static void rewriteYouTubeDex(File inDex, File outDex) throws Exception {
+        DexFile dex = DexFileFactory.loadDexFile(inDex, Opcodes.getDefault());
+        DexRewriter rewriter = new DexRewriter(new RewriterModule() {
+            @Override
+            public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
+                return new Rewriter<Method>() {
+                    @Override
+                    public Method rewrite(Method m) {
+                        if (("Lapp/morphe/extension/youtube/settings/Settings;".equals(m.getDefiningClass()) && "<clinit>".equals(m.getName()))
+                            || ("Lapp/morphe/extension/youtube/patches/spoof/SpoofVideoStreamsPatch;".equals(m.getDefiningClass()) && "setClientOrderToUse".equals(m.getName()))) {
+                            MethodImplementation mi = m.getImplementation();
+                            if (mi != null) {
+                                List<Instruction> newIns = new ArrayList<>();
+                                for (Instruction ins : mi.getInstructions()) {
+                                    if (ins.getOpcode() == Opcode.SGET_OBJECT && ins instanceof ReferenceInstruction) {
+                                        var ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) ref;
+                                            if ("Lapp/morphe/extension/shared/spoof/ClientType;".equals(fr.getDefiningClass())
+                                                && "TV_SIMPLY".equals(fr.getName())) {
+                                                int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                                newIns.add(new BuilderInstruction21c(
+                                                    Opcode.SGET_OBJECT,
+                                                    reg,
+                                                    new ImmutableFieldReference(
+                                                        "Lapp/morphe/extension/shared/spoof/ClientType;",
+                                                        "ANDROID_VR_DASH",
+                                                        "Lapp/morphe/extension/shared/spoof/ClientType;"
+                                                    )
+                                                ));
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    newIns.add(ins);
+                                }
+                                MethodImplementation newMi = new ImmutableMethodImplementation(
+                                    mi.getRegisterCount(),
+                                    newIns,
+                                    mi.getTryBlocks(),
+                                    mi.getDebugItems()
+                                );
+                                return new ImmutableMethod(
+                                    m.getDefiningClass(),
+                                    m.getName(),
+                                    m.getParameters(),
+                                    m.getReturnType(),
+                                    m.getAccessFlags(),
+                                    m.getAnnotations(),
+                                    m.getHiddenApiRestrictions(),
+                                    newMi
+                                );
+                            }
+                        }
+                        return new MethodRewriter(rewriters).rewrite(m);
+                    }
+                };
+            }
+        });
+        DexFile rewritten = rewriter.getDexFileRewriter().rewrite(dex);
+        File tempOut = File.createTempFile("yt_rewrite", ".dex");
+        try {
+            DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), rewritten);
+            Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            tempOut.delete();
+        }
+    }
+
     private static void updateFacebookPatchClass(Path targetPath, FileSystem fs, Path fbPatchClassPath) {
         try {
             Path tempDir = Files.createTempDirectory("fb_sig_patch");
@@ -733,14 +932,14 @@ public class MppExtensionRewriter {
                 JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
                 boolean compiled = false;
                 if (compiler != null) {
-                    int res = compiler.run(null, null, null, "-cp", cp, "-d", tempDir.toString(), srcFile.toString());
+                    int res = compiler.run(null, null, null, "--release", "17", "-cp", cp, "-d", tempDir.toString(), srcFile.toString());
                     compiled = (res == 0);
                 }
                 if (!compiled) {
                     String javaBin = ProcessHandle.current().info().command().orElse("java");
                     File javacBin = new File(new File(javaBin).getParentFile(), "javac");
                     String javacCmd = javacBin.exists() ? javacBin.getAbsolutePath() : "javac";
-                    Process p = new ProcessBuilder(javacCmd, "-cp", cp, "-d", tempDir.toString(), srcFile.toString()).start();
+                    Process p = new ProcessBuilder(javacCmd, "--release", "17", "-cp", cp, "-d", tempDir.toString(), srcFile.toString()).start();
                     compiled = (p.waitFor() == 0);
                 }
 
@@ -832,12 +1031,22 @@ public class MppExtensionRewriter {
                 rewriteFacebookDex(targetPath.toFile(), targetPath.toFile(), hash);
             } else if (pathName.contains("extension")) {
                 rewriteExtensionDex(targetPath.toFile(), targetPath.toFile());
+            } else if (pathName.contains("music")) {
+                rewriteMusicDex(targetPath.toFile(), targetPath.toFile());
+            } else if (pathName.contains("youtube") && !pathName.contains("shared")) {
+                rewriteYouTubeDex(targetPath.toFile(), targetPath.toFile());
             } else {
                 try {
                     rewriteFacebookDex(targetPath.toFile(), targetPath.toFile(), hash);
                 } catch (Exception ignored) {}
                 try {
                     rewriteExtensionDex(targetPath.toFile(), targetPath.toFile());
+                } catch (Exception ignored) {}
+                try {
+                    rewriteMusicDex(targetPath.toFile(), targetPath.toFile());
+                } catch (Exception ignored) {}
+                try {
+                    rewriteYouTubeDex(targetPath.toFile(), targetPath.toFile());
                 } catch (Exception ignored) {}
             }
             return;
@@ -872,6 +1081,34 @@ public class MppExtensionRewriter {
                     Files.copy(extPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
                     rewriteExtensionDex(tempIn.toFile(), tempOut.toFile());
                     Files.copy(tempOut, extPath, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(tempIn);
+                    Files.deleteIfExists(tempOut);
+                }
+            }
+
+            Path musicPath = fs.getPath("extensions/music.mpe");
+            if (Files.exists(musicPath) && ("com.google.android.apps.youtube.music".equals(pkgName) || pkgName.isEmpty())) {
+                Path tempIn = Files.createTempFile("music_in", ".dex");
+                Path tempOut = Files.createTempFile("music_out", ".dex");
+                try {
+                    Files.copy(musicPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
+                    rewriteMusicDex(tempIn.toFile(), tempOut.toFile());
+                    Files.copy(tempOut, musicPath, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(tempIn);
+                    Files.deleteIfExists(tempOut);
+                }
+            }
+
+            Path ytPath = fs.getPath("extensions/youtube.mpe");
+            if (Files.exists(ytPath) && ("com.google.android.youtube".equals(pkgName) || pkgName.isEmpty())) {
+                Path tempIn = Files.createTempFile("yt_in", ".dex");
+                Path tempOut = Files.createTempFile("yt_out", ".dex");
+                try {
+                    Files.copy(ytPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
+                    rewriteYouTubeDex(tempIn.toFile(), tempOut.toFile());
+                    Files.copy(tempOut, ytPath, StandardCopyOption.REPLACE_EXISTING);
                 } finally {
                     Files.deleteIfExists(tempIn);
                     Files.deleteIfExists(tempOut);
@@ -958,7 +1195,7 @@ def _ensure_helper_java() -> Path:
     if _java_helper_path is not None and _java_helper_path.is_file():
         return _java_helper_path
 
-    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v4"
+    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v6"
     cache_dir.mkdir(parents=True, exist_ok=True)
     helper_path = cache_dir / "MppExtensionRewriter.java"
     helper_path.write_text(_REWRITER_JAVA_SOURCE.strip(), encoding="utf-8")
@@ -1055,7 +1292,9 @@ class PatcherCLI:
 
             needs_fb = "extensions/facebook.mpe" in names
             needs_ext = "extensions/extension.mpe" in names and (target_pkg == "com.facebook.orca")
-            if not (needs_fb or needs_ext):
+            needs_music = "extensions/music.mpe" in names and (target_pkg == "com.google.android.apps.youtube.music" or not target_pkg)
+            needs_yt = "extensions/youtube.mpe" in names and (target_pkg == "com.google.android.youtube" or not target_pkg)
+            if not (needs_fb or needs_ext or needs_music or needs_yt):
                 self._rewritten_mpps.add((mpp_path, target_pkg))
                 continue
 
