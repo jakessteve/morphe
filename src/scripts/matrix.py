@@ -66,6 +66,8 @@ def _fetch_our_releases(repo: str, net: NetworkManager) -> tuple[dict[str, str],
         our_releases_raw = net.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", headers=net.gh_headers)
         releases: list[dict[str, Any]] = json.loads(our_releases_raw)
         for rel in releases:
+            if rel.get("draft"):
+                continue
             tag = str(rel.get("tag_name") or "")
             if "-v" in tag:
                 brand = tag.split("-v", 1)[0].lower()

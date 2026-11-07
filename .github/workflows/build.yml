@@ -59,6 +59,16 @@ jobs:
         if: inputs.filter_changelog == true
         run: docker run -d -p 8000:8000 ghcr.io/sarperavci/cloudflarebypassforscraping:latest
 
+      - name: Set matrix based on patch source
+        id: set-matrix
+        env:
+          FILTER_CHANGELOG: ${{ inputs.filter_changelog }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESULT="$(uv run python -m src.scripts.matrix get-matrix '${{ inputs.patch_source }}')"
+          echo "matrix=$(echo "$RESULT" | jq -c '{include}')" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$(echo "$RESULT" | jq -r '.prerelease')" >> "$GITHUB_OUTPUT"
+
       - name: Prepare version and draft release
         id: version
         env:
@@ -71,16 +81,6 @@ jobs:
           else
             gh release create "$VER" --draft --title "$VER" --notes "" --repo "$GITHUB_REPOSITORY"
           fi
-
-      - name: Set matrix based on patch source
-        id: set-matrix
-        env:
-          FILTER_CHANGELOG: ${{ inputs.filter_changelog }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RESULT="$(uv run python -m src.scripts.matrix get-matrix '${{ inputs.patch_source }}')"
-          echo "matrix=$(echo "$RESULT" | jq -c '{include}')" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$(echo "$RESULT" | jq -r '.prerelease')" >> "$GITHUB_OUTPUT"
 
   run:
     needs: prepare
@@ -182,7 +182,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.version }}
         run: |
-          has=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(endswith(".apk"))] | length > 0')
+          has=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(endswith(".apk"))] | length > 0' || echo "false")
           echo "has_apks=${has}" >> "$GITHUB_OUTPUT"
 
       - name: Download logs from draft release

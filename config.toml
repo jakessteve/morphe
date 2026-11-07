@@ -99,6 +99,7 @@ changelog-keywords = ["Photos"]
 enabled = true
 brand = "messenger"
 arch = "arm64-v8a"
+track-apk = false
 apkmirror-dlurl = "https://www.apkmirror.com/apk/facebook-technologies-llc/messenger/"
 aptoide-dlurl = "com.facebook.orca"
 changelog-keywords = ["Messenger"]
@@ -241,6 +242,7 @@ changelog-keywords = ["Threads"]
 enabled = true
 brand = "facebook"
 arch = "arm64-v8a"
+track-apk = false
 apkmirror-dlurl = "https://www.apkmirror.com/apk/facebook-2/facebook/"
 aptoide-dlurl = "com.facebook.katana"
 
