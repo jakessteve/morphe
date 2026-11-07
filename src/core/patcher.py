@@ -33,7 +33,15 @@ _REWRITER_JAVA_SOURCE = r"""
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
+import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
+import com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction;
+import com.android.tools.smali.dexlib2.builder.Label;
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction10x;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
@@ -43,6 +51,7 @@ import com.android.tools.smali.dexlib2.iface.MethodImplementation;
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
 import com.android.tools.smali.dexlib2.iface.reference.StringReference;
@@ -796,7 +805,7 @@ public class MppExtensionRewriter {
                                                         mapped = "VISIONOS_1_02";
                                                         break;
                                                     case "ANDROID_MUSIC_REEL":
-                                                        mapped = "TV_SIMPLY";
+                                                        mapped = "ANDROID_VR_DASH";
                                                         break;
                                                 }
                                                 if (mapped != null) {
@@ -913,6 +922,172 @@ public class MppExtensionRewriter {
         File tempOut = File.createTempFile("yt_rewrite", ".dex");
         try {
             DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), rewritten);
+            Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            tempOut.delete();
+        }
+    }
+
+    public static void rewriteSharedYouTubeDex(File inDex, File outDex) throws Exception {
+        final String CLIENT_TYPE = "Lapp/morphe/extension/shared/spoof/ClientType;";
+        DexFile dex = DexFileFactory.loadDexFile(inDex, Opcodes.getDefault());
+        List<ClassDef> classes = new ArrayList<>();
+
+        for (ClassDef classDef : dex.getClasses()) {
+            String type = classDef.getType();
+            if (CLIENT_TYPE.equals(type)) {
+                List<Method> directMethods = new ArrayList<>();
+                for (Method method : classDef.getDirectMethods()) {
+                    MethodImplementation impl = method.getImplementation();
+                    if ("<init>".equals(method.getName()) && impl != null) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        for (int i = 1; i < insns.size(); i++) {
+                            BuilderInstruction insn = insns.get(i);
+                            if (insn.getOpcode() == Opcode.IPUT_BOOLEAN && insn instanceof ReferenceInstruction) {
+                                var ref = ((ReferenceInstruction) insn).getReference();
+                                if (ref instanceof FieldReference) {
+                                    FieldReference fRef = (FieldReference) ref;
+                                    if (CLIENT_TYPE.equals(fRef.getDefiningClass()) && "requirePoToken".equals(fRef.getName())) {
+                                        BuilderInstruction prev = insns.get(i - 1);
+                                        if (prev.getOpcode() == Opcode.MOVE_FROM16) {
+                                            int regA = ((TwoRegisterInstruction) insn).getRegisterA();
+                                            mutableImpl.replaceInstruction(i - 1, new BuilderInstruction11n(Opcode.CONST_4, regA, 0));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else {
+                        directMethods.add(method);
+                    }
+                }
+                classes.add(new ImmutableClassDef(
+                    classDef.getType(), classDef.getAccessFlags(), classDef.getSuperclass(),
+                    classDef.getInterfaces(), classDef.getSourceFile(), classDef.getAnnotations(),
+                    classDef.getStaticFields(), classDef.getInstanceFields(),
+                    directMethods, classDef.getVirtualMethods()
+                ));
+            } else if ("Lapp/morphe/extension/shared/spoof/potoken/PoTokenManager;".equals(type)) {
+                List<Method> directMethods = new ArrayList<>();
+                for (Method method : classDef.getDirectMethods()) {
+                    MethodImplementation impl = method.getImplementation();
+                    String mName = method.getName();
+                    if (impl != null && (
+                        "getPlayerPoToken".equals(mName)
+                        || "getStreamingPoToken".equals(mName)
+                        || "getAndUpdatePoTokenIfNeeded".equals(mName)
+                    )) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN_OBJECT, 0));
+                        mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else {
+                        directMethods.add(method);
+                    }
+                }
+                classes.add(new ImmutableClassDef(
+                    classDef.getType(), classDef.getAccessFlags(), classDef.getSuperclass(),
+                    classDef.getInterfaces(), classDef.getSourceFile(), classDef.getAnnotations(),
+                    classDef.getStaticFields(), classDef.getInstanceFields(),
+                    directMethods, classDef.getVirtualMethods()
+                ));
+            } else if ("Lapp/morphe/extension/shared/patches/PoTokenProviderPatch;".equals(type)) {
+                List<Method> directMethods = new ArrayList<>();
+                for (Method method : classDef.getDirectMethods()) {
+                    MethodImplementation impl = method.getImplementation();
+                    String mName = method.getName();
+                    if (impl != null && (
+                        "isPoTokenProviderAvailable".equals(mName)
+                        || "isHelperInUse".equals(mName)
+                        || "useExternalPoTokenProvider".equals(mName)
+                    )) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN, 0));
+                        mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else if (impl != null && "onTokenRejected".equals(mName)) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        mutableImpl.addInstruction(0, new BuilderInstruction10x(Opcode.RETURN_VOID));
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else {
+                        directMethods.add(method);
+                    }
+                }
+                classes.add(new ImmutableClassDef(
+                    classDef.getType(), classDef.getAccessFlags(), classDef.getSuperclass(),
+                    classDef.getInterfaces(), classDef.getSourceFile(), classDef.getAnnotations(),
+                    classDef.getStaticFields(), classDef.getInstanceFields(),
+                    directMethods, classDef.getVirtualMethods()
+                ));
+            } else if ("Lapp/morphe/extension/shared/spoof/requests/StreamingDataRequest;".equals(type)) {
+                List<Method> directMethods = new ArrayList<>();
+                for (Method method : classDef.getDirectMethods()) {
+                    MethodImplementation impl = method.getImplementation();
+                    if ("buildClientOrder".equals(method.getName()) && impl != null) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        if (insns.size() > 10
+                            && insns.get(5).getOpcode() == Opcode.INVOKE_INTERFACE
+                            && insns.get(6).getOpcode() == Opcode.SGET_OBJECT
+                            && insns.get(7).getOpcode() == Opcode.IF_NE
+                            && insns.get(8).getOpcode() == Opcode.SGET_OBJECT
+                            && insns.get(9).getOpcode() == Opcode.INVOKE_INTERFACE) {
+                            BuilderInstruction addPreferred = insns.get(5);
+                            Label targetLabel = ((BuilderOffsetInstruction) insns.get(7)).getTarget();
+                            mutableImpl.replaceInstruction(5, new BuilderInstruction10x(Opcode.NOP));
+                            mutableImpl.replaceInstruction(
+                                6,
+                                new BuilderInstruction21c(
+                                    Opcode.SGET_OBJECT,
+                                    1,
+                                    new ImmutableFieldReference(CLIENT_TYPE, "TV_SIMPLY", CLIENT_TYPE)
+                                )
+                            );
+                            mutableImpl.replaceInstruction(7, new BuilderInstruction22t(Opcode.IF_EQ, 4, 1, targetLabel));
+                            mutableImpl.replaceInstruction(8, new BuilderInstruction10x(Opcode.NOP));
+                            mutableImpl.replaceInstruction(9, addPreferred);
+                        }
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else {
+                        directMethods.add(method);
+                    }
+                }
+                classes.add(new ImmutableClassDef(
+                    classDef.getType(), classDef.getAccessFlags(), classDef.getSuperclass(),
+                    classDef.getInterfaces(), classDef.getSourceFile(), classDef.getAnnotations(),
+                    classDef.getStaticFields(), classDef.getInstanceFields(),
+                    directMethods, classDef.getVirtualMethods()
+                ));
+            } else {
+                classes.add(classDef);
+            }
+        }
+
+        File tempOut = File.createTempFile("syt_rewrite", ".dex");
+        try {
+            DexFileFactory.writeDexFile(tempOut.getAbsolutePath(), new ImmutableDexFile(dex.getOpcodes(), classes));
             Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
         } finally {
             tempOut.delete();
@@ -1048,6 +1223,9 @@ public class MppExtensionRewriter {
                 try {
                     rewriteYouTubeDex(targetPath.toFile(), targetPath.toFile());
                 } catch (Exception ignored) {}
+                try {
+                    rewriteSharedYouTubeDex(targetPath.toFile(), targetPath.toFile());
+                } catch (Exception ignored) {}
             }
             return;
         }
@@ -1081,6 +1259,24 @@ public class MppExtensionRewriter {
                     Files.copy(extPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
                     rewriteExtensionDex(tempIn.toFile(), tempOut.toFile());
                     Files.copy(tempOut, extPath, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(tempIn);
+                    Files.deleteIfExists(tempOut);
+                }
+            }
+
+            Path sharedYtPath = fs.getPath("extensions/shared-youtube.mpe");
+            if (Files.exists(sharedYtPath) && (
+                "com.google.android.apps.youtube.music".equals(pkgName)
+                || "com.google.android.youtube".equals(pkgName)
+                || pkgName.isEmpty()
+            )) {
+                Path tempIn = Files.createTempFile("syt_in", ".dex");
+                Path tempOut = Files.createTempFile("syt_out", ".dex");
+                try {
+                    Files.copy(sharedYtPath, tempIn, StandardCopyOption.REPLACE_EXISTING);
+                    rewriteSharedYouTubeDex(tempIn.toFile(), tempOut.toFile());
+                    Files.copy(tempOut, sharedYtPath, StandardCopyOption.REPLACE_EXISTING);
                 } finally {
                     Files.deleteIfExists(tempIn);
                     Files.deleteIfExists(tempOut);
@@ -1195,7 +1391,7 @@ def _ensure_helper_java() -> Path:
     if _java_helper_path is not None and _java_helper_path.is_file():
         return _java_helper_path
 
-    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v6"
+    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v7"
     cache_dir.mkdir(parents=True, exist_ok=True)
     helper_path = cache_dir / "MppExtensionRewriter.java"
     helper_path.write_text(_REWRITER_JAVA_SOURCE.strip(), encoding="utf-8")
@@ -1244,10 +1440,10 @@ def _redact_args(args: list[str | Path]) -> list[str]:
 
 class PatcherCLI:
     def __init__(self, cli_jar: Path, mpp_map: dict[tuple[str, str], Path], apksigner: Path, ks_path: Path | None = None, sig_file: Path = Path("sig.txt")) -> None:
-        self.cli_jar = cli_jar
-        self.mpp_map = mpp_map.copy()
-        self.apksigner = apksigner
-        self.ks_path = ks_path
+        self.cli_jar = cli_jar.resolve()
+        self.mpp_map = {k: v.resolve() for k, v in mpp_map.items()}
+        self.apksigner = apksigner.resolve()
+        self.ks_path = ks_path.resolve() if ks_path else None
         self._last_pkg_name: str = ""
         self._last_list_patches: str = ""
         self._rewritten_mpps: set[tuple[Path, str]] = set()
@@ -1263,10 +1459,10 @@ class PatcherCLI:
 
     def _run_rewriter(self, target_path: Path, pkg_name: str = "") -> None:
         helper = _ensure_helper_java()
-        ks_path = str(self.ks_path) if self.ks_path and self.ks_path.exists() else ("morphe.keystore" if Path("morphe.keystore").exists() else "")
+        ks_path = str(self.ks_path) if self.ks_path and self.ks_path.exists() else (str(Path("morphe.keystore").resolve()) if Path("morphe.keystore").exists() else "")
         ks_pass = os.getenv("KEYSTORE_PASS", "")
         ks_alias = os.getenv("KEYSTORE_ALIAS", "Morphe")
-        _run_java("-cp", self.cli_jar, helper, target_path, pkg_name, ks_path, ks_pass, ks_alias)
+        _run_java("-cp", self.cli_jar, helper, target_path.resolve(), pkg_name, ks_path, ks_pass, ks_alias)
 
     def rewrite_mpe(self, mpe_path: Path, pkg_name: str = "") -> Path:
         self._run_rewriter(mpe_path, pkg_name)
@@ -1279,6 +1475,7 @@ class PatcherCLI:
     def ensure_mpp_compatibility(self, pkg_name: str = "") -> None:
         target_pkg = pkg_name or self._last_pkg_name
         for key, mpp_path in list(self.mpp_map.items()):
+            mpp_path = mpp_path.resolve()
             if not mpp_path.is_file():
                 continue
             if (mpp_path, target_pkg) in self._rewritten_mpps:
@@ -1292,14 +1489,18 @@ class PatcherCLI:
 
             needs_fb = "extensions/facebook.mpe" in names
             needs_ext = "extensions/extension.mpe" in names and (target_pkg == "com.facebook.orca")
+            needs_shared_yt = "extensions/shared-youtube.mpe" in names and (
+                target_pkg in ("com.google.android.apps.youtube.music", "com.google.android.youtube")
+                or not target_pkg
+            )
             needs_music = "extensions/music.mpe" in names and (target_pkg == "com.google.android.apps.youtube.music" or not target_pkg)
             needs_yt = "extensions/youtube.mpe" in names and (target_pkg == "com.google.android.youtube" or not target_pkg)
-            if not (needs_fb or needs_ext or needs_music or needs_yt):
+            if not (needs_fb or needs_ext or needs_shared_yt or needs_music or needs_yt):
                 self._rewritten_mpps.add((mpp_path, target_pkg))
                 continue
 
             copy_suffix = f"-{target_pkg}.mpp" if target_pkg else "-compat.mpp"
-            rewritten_mpp = mpp_path.with_name(f"{mpp_path.stem}{copy_suffix}")
+            rewritten_mpp = mpp_path.with_name(f"{mpp_path.stem}{copy_suffix}").resolve()
             if not rewritten_mpp.exists() or rewritten_mpp.stat().st_mtime < mpp_path.stat().st_mtime:
                 shutil.copyfile(mpp_path, rewritten_mpp)
                 self._run_rewriter(rewritten_mpp, target_pkg)
@@ -1425,6 +1626,8 @@ class PatcherCLI:
         return formatted_args
 
     def patch(self, stock_apk: Path, output_apk: Path, patch_args: list[str]) -> None:
+        stock_apk = stock_apk.resolve()
+        output_apk = output_apk.resolve()
         base_cmd = ["-jar", self.cli_jar, "patch", stock_apk, "-o", output_apk]
         ks_args: list[str] = []
         if self.ks_path and (ks_alias := os.getenv("KEYSTORE_ALIAS")):
@@ -1436,7 +1639,7 @@ class PatcherCLI:
             if store_pass:
                 ks_args.append(f"--keystore-password={store_pass}")
         elif Path("morphe.keystore").exists():
-            ks_args = ["--keystore=morphe.keystore"]
+            ks_args = [f"--keystore={Path('morphe.keystore').resolve()}"]
 
         pr(" ".join(_redact_args([_java_bin(), *base_cmd, *ks_args, *patch_args])))
         try:

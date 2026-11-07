@@ -172,7 +172,7 @@ def get_matrix(source: str) -> None:
             for entry in staged:
                 built_ver = _lookup_built_ver(entry, source_lower, brand_built)
                 has_new_apk = False
-                if entry.track_apk and entry.dl_urls:
+                if entry.track_apk and entry.dl_urls and entry.version in (None, "auto", "latest"):
                     source_ver = _fetch_latest_source_version(entry, net, scrapers)
                     if source_ver and is_newer_version(source_ver, built_ver):
                         has_new_apk = True
@@ -262,7 +262,7 @@ def check_builds_needed(force_all: bool = False) -> None:
             brand_built = built_versions_by_brand.get(brand, {})
             apk_update_found = False
             for app in entries_by_brand.get(brand, []):
-                if not app.track_apk or not app.dl_urls:
+                if not app.track_apk or not app.dl_urls or app.version not in (None, "auto", "latest"):
                     continue
                 built_ver = _lookup_built_ver(app, brand, brand_built)
                 source_ver = _fetch_latest_source_version(app, net, scrapers)
