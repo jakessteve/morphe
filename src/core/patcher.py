@@ -34,23 +34,28 @@ import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
-import com.android.tools.smali.dexlib2.builder.BuilderOffsetInstruction;
 import com.android.tools.smali.dexlib2.builder.Label;
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction10t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction10x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction12x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22t;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction23x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.DexFile;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MethodImplementation;
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.ThreeRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
@@ -786,62 +791,78 @@ public class MppExtensionRewriter {
                             && "<clinit>".equals(m.getName())) {
                             MethodImplementation mi = m.getImplementation();
                             if (mi != null) {
-                                List<Instruction> newIns = new ArrayList<>();
+                                boolean alreadyRewritten = false;
                                 for (Instruction ins : mi.getInstructions()) {
                                     if (ins.getOpcode() == Opcode.SGET_OBJECT && ins instanceof ReferenceInstruction) {
                                         var ref = ((ReferenceInstruction) ins).getReference();
                                         if (ref instanceof FieldReference) {
                                             FieldReference fr = (FieldReference) ref;
                                             if ("Lapp/morphe/extension/shared/spoof/ClientType;".equals(fr.getDefiningClass())) {
-                                                String mapped = null;
-                                                switch (fr.getName()) {
-                                                    case "TV_SIMPLY":
-                                                        mapped = "ANDROID_MUSIC_NO_SDK";
-                                                        break;
-                                                    case "VISIONOS_1_02":
-                                                        mapped = "ANDROID_MUSIC_REEL";
-                                                        break;
-                                                    case "ANDROID_MUSIC_NO_SDK":
-                                                        mapped = "VISIONOS_1_02";
-                                                        break;
-                                                    case "ANDROID_MUSIC_REEL":
-                                                        mapped = "ANDROID_VR_DASH";
-                                                        break;
-                                                }
-                                                if (mapped != null) {
-                                                    int reg = ((OneRegisterInstruction) ins).getRegisterA();
-                                                    newIns.add(new BuilderInstruction21c(
-                                                        Opcode.SGET_OBJECT,
-                                                        reg,
-                                                        new ImmutableFieldReference(
-                                                            "Lapp/morphe/extension/shared/spoof/ClientType;",
-                                                            mapped,
-                                                            "Lapp/morphe/extension/shared/spoof/ClientType;"
-                                                        )
-                                                    ));
-                                                    continue;
-                                                }
+                                                alreadyRewritten = "ANDROID_MUSIC_NO_SDK".equals(fr.getName());
+                                                break;
                                             }
                                         }
                                     }
-                                    newIns.add(ins);
                                 }
-                                MethodImplementation newMi = new ImmutableMethodImplementation(
-                                    mi.getRegisterCount(),
-                                    newIns,
-                                    mi.getTryBlocks(),
-                                    mi.getDebugItems()
-                                );
-                                return new ImmutableMethod(
-                                    m.getDefiningClass(),
-                                    m.getName(),
-                                    m.getParameters(),
-                                    m.getReturnType(),
-                                    m.getAccessFlags(),
-                                    m.getAnnotations(),
-                                    m.getHiddenApiRestrictions(),
-                                    newMi
-                                );
+                                if (!alreadyRewritten) {
+                                    List<Instruction> newIns = new ArrayList<>();
+                                    for (Instruction ins : mi.getInstructions()) {
+                                        if (ins.getOpcode() == Opcode.SGET_OBJECT && ins instanceof ReferenceInstruction) {
+                                            var ref = ((ReferenceInstruction) ins).getReference();
+                                            if (ref instanceof FieldReference) {
+                                                FieldReference fr = (FieldReference) ref;
+                                                if ("Lapp/morphe/extension/shared/spoof/ClientType;".equals(fr.getDefiningClass())) {
+                                                    String mapped = null;
+                                                    switch (fr.getName()) {
+                                                        case "TV_SIMPLY":
+                                                        case "TV_SABR":
+                                                            mapped = "ANDROID_MUSIC_NO_SDK";
+                                                            break;
+                                                        case "VISIONOS_1_02":
+                                                            mapped = "ANDROID_MUSIC_REEL";
+                                                            break;
+                                                        case "ANDROID_MUSIC_NO_SDK":
+                                                            mapped = "TV_SABR";
+                                                            break;
+                                                        case "ANDROID_MUSIC_REEL":
+                                                            mapped = "VISIONOS_1_02";
+                                                            break;
+                                                    }
+                                                    if (mapped != null) {
+                                                        int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                                        newIns.add(new BuilderInstruction21c(
+                                                            Opcode.SGET_OBJECT,
+                                                            reg,
+                                                            new ImmutableFieldReference(
+                                                                "Lapp/morphe/extension/shared/spoof/ClientType;",
+                                                                mapped,
+                                                                "Lapp/morphe/extension/shared/spoof/ClientType;"
+                                                            )
+                                                        ));
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        newIns.add(ins);
+                                    }
+                                    MethodImplementation newMi = new ImmutableMethodImplementation(
+                                        mi.getRegisterCount(),
+                                        newIns,
+                                        mi.getTryBlocks(),
+                                        mi.getDebugItems()
+                                    );
+                                    return new ImmutableMethod(
+                                        m.getDefiningClass(),
+                                        m.getName(),
+                                        m.getParameters(),
+                                        m.getReturnType(),
+                                        m.getAccessFlags(),
+                                        m.getAnnotations(),
+                                        m.getHiddenApiRestrictions(),
+                                        newMi
+                                    );
+                                }
                             }
                         }
                         return new MethodRewriter(rewriters).rewrite(m);
@@ -885,7 +906,7 @@ public class MppExtensionRewriter {
                                                     reg,
                                                     new ImmutableFieldReference(
                                                         "Lapp/morphe/extension/shared/spoof/ClientType;",
-                                                        "ANDROID_VR_DASH",
+                                                        "TV_SABR",
                                                         "Lapp/morphe/extension/shared/spoof/ClientType;"
                                                     )
                                                 ));
@@ -984,8 +1005,13 @@ public class MppExtensionRewriter {
                         || "getAndUpdatePoTokenIfNeeded".equals(mName)
                     )) {
                         MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
-                        mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN_OBJECT, 0));
-                        mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        if (!(insns.size() >= 2
+                            && insns.get(0).getOpcode() == Opcode.CONST_4
+                            && insns.get(1).getOpcode() == Opcode.RETURN_OBJECT)) {
+                            mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN_OBJECT, 0));
+                            mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        }
                         directMethods.add(new ImmutableMethod(
                             method.getDefiningClass(), method.getName(), method.getParameters(),
                             method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
@@ -1012,8 +1038,13 @@ public class MppExtensionRewriter {
                         || "useExternalPoTokenProvider".equals(mName)
                     )) {
                         MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
-                        mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN, 0));
-                        mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        if (!(insns.size() >= 2
+                            && insns.get(0).getOpcode() == Opcode.CONST_4
+                            && insns.get(1).getOpcode() == Opcode.RETURN)) {
+                            mutableImpl.addInstruction(0, new BuilderInstruction11x(Opcode.RETURN, 0));
+                            mutableImpl.addInstruction(0, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                        }
                         directMethods.add(new ImmutableMethod(
                             method.getDefiningClass(), method.getName(), method.getParameters(),
                             method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
@@ -1021,7 +1052,10 @@ public class MppExtensionRewriter {
                         ));
                     } else if (impl != null && "onTokenRejected".equals(mName)) {
                         MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
-                        mutableImpl.addInstruction(0, new BuilderInstruction10x(Opcode.RETURN_VOID));
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        if (!(insns.size() >= 1 && insns.get(0).getOpcode() == Opcode.RETURN_VOID)) {
+                            mutableImpl.addInstruction(0, new BuilderInstruction10x(Opcode.RETURN_VOID));
+                        }
                         directMethods.add(new ImmutableMethod(
                             method.getDefiningClass(), method.getName(), method.getParameters(),
                             method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
@@ -1041,30 +1075,174 @@ public class MppExtensionRewriter {
                 List<Method> directMethods = new ArrayList<>();
                 for (Method method : classDef.getDirectMethods()) {
                     MethodImplementation impl = method.getImplementation();
-                    if ("buildClientOrder".equals(method.getName()) && impl != null) {
+                    String mName = method.getName();
+                    if ("buildClientOrder".equals(mName) && impl != null) {
+                        boolean alreadyRewritten = false;
+                        for (Instruction ins : impl.getInstructions()) {
+                            if (ins instanceof ReferenceInstruction) {
+                                var ref = ((ReferenceInstruction) ins).getReference();
+                                if (ref instanceof FieldReference) {
+                                    FieldReference fRef = (FieldReference) ref;
+                                    if ("Lapp/morphe/extension/shared/patches/AppCheckPatch;".equals(fRef.getDefiningClass())
+                                        && "IS_YOUTUBE_MUSIC".equals(fRef.getName())) {
+                                        alreadyRewritten = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (alreadyRewritten) {
+                            directMethods.add(method);
+                            continue;
+                        }
                         MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
                         List<BuilderInstruction> insns = mutableImpl.getInstructions();
-                        if (insns.size() > 10
-                            && insns.get(5).getOpcode() == Opcode.INVOKE_INTERFACE
-                            && insns.get(6).getOpcode() == Opcode.SGET_OBJECT
-                            && insns.get(7).getOpcode() == Opcode.IF_NE
-                            && insns.get(8).getOpcode() == Opcode.SGET_OBJECT
-                            && insns.get(9).getOpcode() == Opcode.INVOKE_INTERFACE) {
-                            BuilderInstruction addPreferred = insns.get(5);
-                            Label targetLabel = ((BuilderOffsetInstruction) insns.get(7)).getTarget();
-                            mutableImpl.replaceInstruction(5, new BuilderInstruction10x(Opcode.NOP));
-                            mutableImpl.replaceInstruction(
-                                6,
+                        int prefReg = impl.getRegisterCount() - 1;
+                        if (prefReg >= 2 && prefReg < 16 && insns.size() > 2 && insns.get(0).getOpcode() == Opcode.INVOKE_STATIC) {
+                            Label afterRemap = mutableImpl.newLabelForIndex(1);
+                            mutableImpl.addInstruction(
+                                1,
+                                new BuilderInstruction21c(
+                                    Opcode.SGET_OBJECT,
+                                    prefReg,
+                                    new ImmutableFieldReference(CLIENT_TYPE, "TV_SABR", CLIENT_TYPE)
+                                )
+                            );
+                            Label youtubeBranch = mutableImpl.newLabelForIndex(1);
+                            mutableImpl.addInstruction(
+                                1,
                                 new BuilderInstruction21c(
                                     Opcode.SGET_OBJECT,
                                     1,
                                     new ImmutableFieldReference(CLIENT_TYPE, "TV_SIMPLY", CLIENT_TYPE)
                                 )
                             );
-                            mutableImpl.replaceInstruction(7, new BuilderInstruction22t(Opcode.IF_EQ, 4, 1, targetLabel));
-                            mutableImpl.replaceInstruction(8, new BuilderInstruction10x(Opcode.NOP));
-                            mutableImpl.replaceInstruction(9, addPreferred);
+                            mutableImpl.addInstruction(2, new BuilderInstruction22t(Opcode.IF_NE, prefReg, 1, afterRemap));
+                            mutableImpl.addInstruction(
+                                3,
+                                new BuilderInstruction21c(
+                                    Opcode.SGET_BOOLEAN,
+                                    0,
+                                    new ImmutableFieldReference(
+                                        "Lapp/morphe/extension/shared/patches/AppCheckPatch;",
+                                        "IS_YOUTUBE_MUSIC",
+                                        "Z"
+                                    )
+                                )
+                            );
+                            mutableImpl.addInstruction(4, new BuilderInstruction21t(Opcode.IF_EQZ, 0, youtubeBranch));
+                            mutableImpl.addInstruction(
+                                5,
+                                new BuilderInstruction21c(
+                                    Opcode.SGET_OBJECT,
+                                    prefReg,
+                                    new ImmutableFieldReference(CLIENT_TYPE, "ANDROID_MUSIC_NO_SDK", CLIENT_TYPE)
+                                )
+                            );
+                            mutableImpl.addInstruction(6, new BuilderInstruction10t(Opcode.GOTO, afterRemap));
+
+                            int retIdx = -1;
+                            for (int i = insns.size() - 1; i >= 0; i--) {
+                                if (insns.get(i).getOpcode() == Opcode.RETURN_OBJECT) {
+                                    retIdx = i;
+                                    break;
+                                }
+                            }
+                            if (retIdx >= 0) {
+                                int orderReg = ((OneRegisterInstruction) insns.get(retIdx)).getRegisterA();
+                                if (orderReg < 16 && impl.getRegisterCount() >= 3) {
+                                    int scratchClientReg = (orderReg == 1) ? 0 : 1;
+                                    int scratchBoolReg = (orderReg == 2) ? ((scratchClientReg == 0) ? 1 : 0) : 2;
+                                    mutableImpl.replaceInstruction(
+                                        retIdx,
+                                        new BuilderInstruction21c(
+                                            Opcode.SGET_OBJECT,
+                                            scratchClientReg,
+                                            new ImmutableFieldReference(CLIENT_TYPE, "VISIONOS_1_02", CLIENT_TYPE)
+                                        )
+                                    );
+                                    mutableImpl.addInstruction(retIdx + 1, new BuilderInstruction11x(Opcode.RETURN_OBJECT, orderReg));
+                                    Label doReturn = mutableImpl.newLabelForIndex(retIdx + 1);
+                                    mutableImpl.addInstruction(
+                                        retIdx + 1,
+                                        new BuilderInstruction35c(
+                                            Opcode.INVOKE_INTERFACE,
+                                            2, orderReg, scratchClientReg, 0, 0, 0,
+                                            new ImmutableMethodReference(
+                                                "Ljava/util/List;",
+                                                "contains",
+                                                Collections.singletonList("Ljava/lang/Object;"),
+                                                "Z"
+                                            )
+                                        )
+                                    );
+                                    mutableImpl.addInstruction(retIdx + 2, new BuilderInstruction11x(Opcode.MOVE_RESULT, scratchBoolReg));
+                                    mutableImpl.addInstruction(retIdx + 3, new BuilderInstruction21t(Opcode.IF_NEZ, scratchBoolReg, doReturn));
+                                    mutableImpl.addInstruction(
+                                        retIdx + 4,
+                                        new BuilderInstruction35c(
+                                            Opcode.INVOKE_INTERFACE,
+                                            2, orderReg, scratchClientReg, 0, 0, 0,
+                                            new ImmutableMethodReference(
+                                                "Ljava/util/List;",
+                                                "add",
+                                                Collections.singletonList("Ljava/lang/Object;"),
+                                                "Z"
+                                            )
+                                        )
+                                    );
+                                }
+                            }
                         }
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else if ("fetch".equals(mName) && impl != null) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+                        for (int i = insns.size() - 2; i >= 0; i--) {
+                            BuilderInstruction insn = insns.get(i);
+                            BuilderInstruction next = insns.get(i + 1);
+                            if (insn.getOpcode() == Opcode.AGET_OBJECT
+                                && insn instanceof ThreeRegisterInstruction
+                                && next.getOpcode() == Opcode.IGET_BOOLEAN
+                                && next instanceof ReferenceInstruction) {
+                                var ref = ((ReferenceInstruction) next).getReference();
+                                if (ref instanceof FieldReference) {
+                                    FieldReference fRef = (FieldReference) ref;
+                                    if (CLIENT_TYPE.equals(fRef.getDefiningClass()) && "supportsOAuth2".equals(fRef.getName())) {
+                                        if (i >= 4
+                                            && insns.get(i - 1).getOpcode() == Opcode.RETURN_OBJECT
+                                            && insns.get(i - 4).getOpcode() == Opcode.ARRAY_LENGTH) {
+                                            continue;
+                                        }
+                                        ThreeRegisterInstruction aget = (ThreeRegisterInstruction) insn;
+                                        int destReg = aget.getRegisterA();
+                                        int arrReg = aget.getRegisterB();
+                                        int idxReg = aget.getRegisterC();
+                                        if (destReg < 16 && arrReg < 16) {
+                                            mutableImpl.addInstruction(i + 1, new BuilderInstruction23x(Opcode.AGET_OBJECT, destReg, arrReg, idxReg));
+                                            Label nonEmpty = mutableImpl.newLabelForIndex(i + 1);
+                                            mutableImpl.replaceInstruction(i, new BuilderInstruction12x(Opcode.ARRAY_LENGTH, destReg, arrReg));
+                                            mutableImpl.addInstruction(i + 1, new BuilderInstruction21t(Opcode.IF_NEZ, destReg, nonEmpty));
+                                            mutableImpl.addInstruction(i + 2, new BuilderInstruction11n(Opcode.CONST_4, destReg, 0));
+                                            mutableImpl.addInstruction(i + 3, new BuilderInstruction11x(Opcode.RETURN_OBJECT, destReg));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        guardPlayerHeadersMapGet(mutableImpl);
+                        directMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else if (("<init>".equals(mName) || "isFetchInProgress".equals(mName)) && impl != null) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        guardPlayerHeadersMapGet(mutableImpl);
                         directMethods.add(new ImmutableMethod(
                             method.getDefiningClass(), method.getName(), method.getParameters(),
                             method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
@@ -1074,11 +1252,26 @@ public class MppExtensionRewriter {
                         directMethods.add(method);
                     }
                 }
+                List<Method> virtualMethods = new ArrayList<>();
+                for (Method method : classDef.getVirtualMethods()) {
+                    MethodImplementation impl = method.getImplementation();
+                    if ("isFetchInProgress".equals(method.getName()) && impl != null) {
+                        MutableMethodImplementation mutableImpl = new MutableMethodImplementation(impl);
+                        guardPlayerHeadersMapGet(mutableImpl);
+                        virtualMethods.add(new ImmutableMethod(
+                            method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(),
+                            method.getHiddenApiRestrictions(), mutableImpl
+                        ));
+                    } else {
+                        virtualMethods.add(method);
+                    }
+                }
                 classes.add(new ImmutableClassDef(
                     classDef.getType(), classDef.getAccessFlags(), classDef.getSuperclass(),
                     classDef.getInterfaces(), classDef.getSourceFile(), classDef.getAnnotations(),
                     classDef.getStaticFields(), classDef.getInstanceFields(),
-                    directMethods, classDef.getVirtualMethods()
+                    directMethods, virtualMethods
                 ));
             } else {
                 classes.add(classDef);
@@ -1091,6 +1284,60 @@ public class MppExtensionRewriter {
             Files.copy(tempOut.toPath(), outDex.toPath(), StandardCopyOption.REPLACE_EXISTING);
         } finally {
             tempOut.delete();
+        }
+    }
+
+    private static void guardPlayerHeadersMapGet(MutableMethodImplementation mutableImpl) {
+        List<BuilderInstruction> insns = mutableImpl.getInstructions();
+        for (int i = insns.size() - 1; i >= 0; i--) {
+            BuilderInstruction insn = insns.get(i);
+            if (insn.getOpcode() == Opcode.INVOKE_INTERFACE
+                && insn instanceof FiveRegisterInstruction
+                && insn instanceof ReferenceInstruction) {
+                var ref = ((ReferenceInstruction) insn).getReference();
+                if (ref instanceof MethodReference) {
+                    MethodReference mr = (MethodReference) ref;
+                    if ("Ljava/util/Map;".equals(mr.getDefiningClass())
+                        && "get".equals(mr.getName())
+                        && "Ljava/lang/Object;".equals(mr.getReturnType())
+                        && mr.getParameterTypes().size() == 1) {
+                        if (i >= 2
+                            && insns.get(i - 1).getOpcode() == Opcode.MOVE_RESULT_OBJECT
+                            && insns.get(i - 2).getOpcode() == Opcode.INVOKE_STATIC) {
+                            continue;
+                        }
+                        FiveRegisterInstruction five = (FiveRegisterInstruction) insn;
+                        int mapReg = five.getRegisterC();
+                        BuilderInstruction35c copyGet = new BuilderInstruction35c(
+                            Opcode.INVOKE_INTERFACE,
+                            five.getRegisterCount(),
+                            five.getRegisterC(),
+                            five.getRegisterD(),
+                            five.getRegisterE(),
+                            five.getRegisterF(),
+                            five.getRegisterG(),
+                            mr
+                        );
+                        mutableImpl.addInstruction(i + 1, copyGet);
+                        Label nonNullLabel = mutableImpl.newLabelForIndex(i + 1);
+                        mutableImpl.replaceInstruction(i, new BuilderInstruction21t(Opcode.IF_NEZ, mapReg, nonNullLabel));
+                        mutableImpl.addInstruction(
+                            i + 1,
+                            new BuilderInstruction35c(
+                                Opcode.INVOKE_STATIC,
+                                0, 0, 0, 0, 0, 0,
+                                new ImmutableMethodReference(
+                                    "Ljava/util/Collections;",
+                                    "emptyMap",
+                                    Collections.emptyList(),
+                                    "Ljava/util/Map;"
+                                )
+                            )
+                        );
+                        mutableImpl.addInstruction(i + 2, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, mapReg));
+                    }
+                }
+            }
         }
     }
 
@@ -1208,6 +1455,8 @@ public class MppExtensionRewriter {
                 rewriteExtensionDex(targetPath.toFile(), targetPath.toFile());
             } else if (pathName.contains("music")) {
                 rewriteMusicDex(targetPath.toFile(), targetPath.toFile());
+            } else if (pathName.contains("shared-youtube") || (pathName.contains("shared") && pathName.contains("youtube"))) {
+                rewriteSharedYouTubeDex(targetPath.toFile(), targetPath.toFile());
             } else if (pathName.contains("youtube") && !pathName.contains("shared")) {
                 rewriteYouTubeDex(targetPath.toFile(), targetPath.toFile());
             } else {
@@ -1391,10 +1640,12 @@ def _ensure_helper_java() -> Path:
     if _java_helper_path is not None and _java_helper_path.is_file():
         return _java_helper_path
 
-    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v7"
+    cache_dir = Path(tempfile.gettempdir()) / "morphe_ext_rewriter_v8"
     cache_dir.mkdir(parents=True, exist_ok=True)
     helper_path = cache_dir / "MppExtensionRewriter.java"
-    helper_path.write_text(_REWRITER_JAVA_SOURCE.strip(), encoding="utf-8")
+    source = _REWRITER_JAVA_SOURCE.strip()
+    if not helper_path.is_file() or helper_path.read_text(encoding="utf-8") != source:
+        helper_path.write_text(source, encoding="utf-8")
     _java_helper_path = helper_path
     return _java_helper_path
 
@@ -1501,7 +1752,7 @@ class PatcherCLI:
 
             copy_suffix = f"-{target_pkg}.mpp" if target_pkg else "-compat.mpp"
             rewritten_mpp = mpp_path.with_name(f"{mpp_path.stem}{copy_suffix}").resolve()
-            if not rewritten_mpp.exists() or rewritten_mpp.stat().st_mtime < mpp_path.stat().st_mtime:
+            if not rewritten_mpp.exists() or rewritten_mpp.stat().st_mtime < max(mpp_path.stat().st_mtime, _ensure_helper_java().stat().st_mtime):
                 shutil.copyfile(mpp_path, rewritten_mpp)
                 self._run_rewriter(rewritten_mpp, target_pkg)
 
